@@ -4,7 +4,7 @@
 
 - [x] Create a Python 3.12+ project structure using `uv`
 - [x] Implement `app/enums.py` with `IntentEnum` and `NodeName`
-- [ ] Implement `app/state.py` with `AgentState`
+- [x] Implement `app/state.py` with `AgentState`
 - [ ] Implement `app/config.py` with `Settings` including `TTS_ENABLED` and `TTS_MOCK_MODE`
 
 ## Phase 2: LangGraph nodes (TDD and mocking)
