@@ -19,15 +19,15 @@
 
 ## Phase 3: Graph assembly and FastAPI SSE endpoint
 
-- [ ] Assemble `create_silpo_agent_graph()` with `MemorySaver` checkpointer
-- [ ] Implement `POST /api/agent/stream` using native FastAPI `StreamingResponse`
+- [x] Assemble `create_silpo_agent_graph()` with `MemorySaver` checkpointer
+- [x] Implement `POST /api/agent/stream` using native FastAPI `StreamingResponse`
 
 ## Phase 4: SvelteKit frontend
 
-- [ ] Create a SvelteKit (Svelte 5) project with Tailwind CSS
-- [ ] Implement `VoiceInput.svelte` for push-to-talk voice input
-- [ ] Implement `AgentTimeline.svelte` for the SSE `EventSource` listener
-- [ ] Implement `CartCard.svelte` with an audio player for Respeecher TTS output
+- [x] Create a SvelteKit (Svelte 5) project with Tailwind CSS
+- [x] Implement `VoiceInput.svelte` for push-to-talk voice input
+- [x] Implement `AgentTimeline.svelte` for the SSE `EventSource` listener
+- [x] Implement `CartCard.svelte` with an audio player for Respeecher TTS output
 
 ## Phase 5: Post-MVP roadmap (Phase 2 intents)
 
