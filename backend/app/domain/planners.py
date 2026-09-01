@@ -83,9 +83,7 @@ class PartyDomainPlanner:
 
     def format_summary(self, total_price: float, state: AgentState) -> str:
         people_count = state.get("people_count") or 1
-        return (
-            f"Я зібрав кошик для пікніка на {people_count} осіб на суму {int(total_price)} гривень."
-        )
+        return f"Я зібрав кошик для пікніка на {people_count} осіб на суму {int(total_price)} гривень."
 
 
 class BudgetDomainPlanner:

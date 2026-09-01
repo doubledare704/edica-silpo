@@ -1,6 +1,7 @@
-from typing import Any, TypedDict
+from typing import Any
 
 from langchain_core.messages import BaseMessage
+from typing_extensions import TypedDict
 
 from .enums import IntentEnum
 

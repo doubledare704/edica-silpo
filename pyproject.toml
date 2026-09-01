@@ -6,14 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.141.1",
-    "httpx>=0.28.1",
     "langchain-core>=1.6.1",
     "langgraph>=1.2.11",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
-    "pytest>=9.1.1",
-    "pytest-asyncio>=1.4.0",
-    "ruff>=0.16.5",
     "silpo-py-mcp>=0.1.2",
     "uvicorn>=0.52.4",
 ]
@@ -24,5 +20,19 @@ testpaths = ["backend/tests", "tests"]
 asyncio_mode = "auto"
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py312"
+
+[tool.pyrefly]
+project-includes = [
+    "backend/app/**/*.py*",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pyrefly>=1.2.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.5",
+]
