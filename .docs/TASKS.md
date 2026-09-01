@@ -31,5 +31,5 @@
 
 ## Phase 5: Post-MVP roadmap (Phase 2 intents)
 
-- [ ] Implement `plan_office_logic` for the `OFFICE` intent
-- [ ] Implement `plan_gourmet_logic` for the `GOURMET` intent
+- [x] Implement `plan_office_logic` for the `OFFICE` intent
+- [x] Implement `plan_gourmet_logic` for the `GOURMET` intent

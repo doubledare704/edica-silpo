@@ -1,5 +1,5 @@
 import math
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol
 
 from ..enums import IntentEnum
 from ..state import AgentState
@@ -114,6 +114,118 @@ class BudgetDomainPlanner:
         return f"Я підібрав економний кошик із {products_count} товарів на суму {int(total_price)} гривень."
 
 
+class OfficeDomainPlanner:
+    """B2B office snack procurement planner.
+
+    Calculates a weekly snack and beverage set for a team, always targeting
+    private-label SKUs to minimise cost per head.  Quantities scale linearly
+    with *people_count* and shrink on budget-exceeded retries.
+    """
+
+    # Base weekly quantities per person (fractional; rounded up)
+    _PER_PERSON: ClassVar[list[tuple[str, str, float]]] = [
+        ("Кава розчинна Премія", "coffee", 0.15),
+        ("Чай чорний пакетований Премія", "tea", 0.15),
+        ("Цукор Премія 1 кг", "grocery", 0.10),
+        ("Печиво вівсяне Премія", "snacks", 0.20),
+        ("Вода питна негазована 1.5 л Премія", "drinks", 0.30),
+    ]
+
+    def plan(self, state: AgentState) -> list[dict[str, Any]]:
+        people_count = state.get("people_count") or 5  # default office of 5
+        is_retry = state.get("is_budget_exceeded", False)
+        attempts = state.get("attempts", 0)
+
+        items: list[dict[str, Any]] = []
+        for query, category, per_person_rate in self._PER_PERSON:
+            qty = max(1, math.ceil(people_count * per_person_rate))
+            if is_retry and attempts > 0:
+                qty = max(1, qty - attempts)
+            items.append(
+                {
+                    "query": query,
+                    "category": category,
+                    "quantity": qty,
+                    "prefer_private_label": True,
+                }
+            )
+
+        return items
+
+    def format_summary(self, total_price: float, state: AgentState) -> str:
+        products_count = len(state.get("mcp_products", []))
+        return f"Я сформував офісний кошик із {products_count} товарів на суму {int(total_price)} гривень."
+
+
+class GourmetDomainPlanner:
+    """Gourmet sommelier pairing planner.
+
+    Builds a curated selection of artisanal cheeses and wines.  Never uses
+    private-label items — quality is the primary constraint.  When
+    *raw_item_requests* is provided, the first item is treated as the anchor
+    ingredient and placed first in the plan.  Quantities reduce on retry.
+    """
+
+    _DEFAULT_PAIRINGS: ClassVar[list[tuple[str, str]]] = [
+        ("Сир брі", "cheese"),
+        ("Вино біле сухе El Maestro", "wine"),
+        ("Сир горгонзола", "cheese"),
+        ("Вино червоне сухе Chianti", "wine"),
+        ("Крекери до вина", "crackers"),
+        ("Виноград кишмиш", "fruit"),
+    ]
+
+    def plan(self, state: AgentState) -> list[dict[str, Any]]:
+        raw_requests = state.get("raw_item_requests") or []
+        is_retry = state.get("is_budget_exceeded", False)
+        attempts = state.get("attempts", 0)
+
+        items: list[dict[str, Any]] = []
+
+        # Honour explicit customer requests as cheese anchors
+        for req in raw_requests:
+            items.append(
+                {
+                    "query": req,
+                    "category": "cheese",
+                    "quantity": 1,
+                    "prefer_private_label": False,
+                }
+            )
+
+        # Fill with curated default pairings (skip duplication with requests)
+        request_lower = {r.lower() for r in raw_requests}
+        for query, category in self._DEFAULT_PAIRINGS:
+            if query.lower() not in request_lower:
+                qty = 1
+                if is_retry and attempts > 0 and category not in {"cheese", "wine"}:
+                    # On retry, trim accompanying items first
+                    continue
+                items.append(
+                    {
+                        "query": query,
+                        "category": category,
+                        "quantity": qty,
+                        "prefer_private_label": False,
+                    }
+                )
+
+        # Ensure at least one cheese + one wine even on retry
+        categories_present = {i["category"] for i in items}
+        if "cheese" not in categories_present:
+            items.insert(0, {"query": "Сир брі", "category": "cheese", "quantity": 1, "prefer_private_label": False})
+        if "wine" not in categories_present:
+            items.append(
+                {"query": "Вино біле сухе El Maestro", "category": "wine", "quantity": 1, "prefer_private_label": False}
+            )
+
+        return items
+
+    def format_summary(self, total_price: float, state: AgentState) -> str:
+        products_count = len(state.get("mcp_products", []))
+        return f"Я підібрав гурманський кошик із {products_count} сирів та вин на суму {int(total_price)} гривень."
+
+
 class GeneralDomainPlanner:
     def plan(self, state: AgentState) -> list[dict[str, Any]]:
         raw_items = state.get("raw_item_requests") or ["продукти"]
@@ -136,6 +248,8 @@ class GeneralDomainPlanner:
 _PLANNERS: dict[IntentEnum, DomainPlanner] = {
     IntentEnum.PARTY: PartyDomainPlanner(),
     IntentEnum.BUDGET: BudgetDomainPlanner(),
+    IntentEnum.OFFICE: OfficeDomainPlanner(),
+    IntentEnum.GOURMET: GourmetDomainPlanner(),
 }
 
 
