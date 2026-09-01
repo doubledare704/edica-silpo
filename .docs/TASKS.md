@@ -10,7 +10,7 @@
 ## Phase 2: LangGraph nodes (TDD and mocking)
 
 - [x] TDD and implement `stt_node` for Whisper or audio parsing mock
-- [ ] TDD and implement `parse_intent_node` for LLM entity extraction
+- [x] TDD and implement `parse_intent_node` for LLM entity extraction
 - [ ] TDD and implement `plan_domain_logic_node` for party and budget math logic
 - [ ] TDD and implement `mcp_fetch_node` using `silpo-py-mcp`
 - [ ] TDD and implement `check_constraints_node` for constraint satisfaction loop
