@@ -2,7 +2,7 @@
 
 ## Phase 1: Core environment and shared types
 
-- [ ] Create a Python 3.12+ project structure using `uv`
+- [x] Create a Python 3.12+ project structure using `uv`
 - [ ] Implement `app/enums.py` with `IntentEnum` and `NodeName`
 - [ ] Implement `app/state.py` with `AgentState`
 - [ ] Implement `app/config.py` with `Settings` including `TTS_ENABLED` and `TTS_MOCK_MODE`
