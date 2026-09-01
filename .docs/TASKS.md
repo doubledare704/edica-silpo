@@ -11,11 +11,11 @@
 
 - [x] TDD and implement `stt_node` for Whisper or audio parsing mock
 - [x] TDD and implement `parse_intent_node` for LLM entity extraction
-- [ ] TDD and implement `plan_domain_logic_node` for party and budget math logic
-- [ ] TDD and implement `mcp_fetch_node` using `silpo-py-mcp`
-- [ ] TDD and implement `check_constraints_node` for constraint satisfaction loop
-- [ ] TDD and implement `create_cart_node` for cart link generation
-- [ ] TDD and implement `tts_node` with Respeecher API and mock fallback
+- [x] TDD and implement `plan_domain_logic_node` for party and budget math logic
+- [x] TDD and implement `mcp_fetch_node` using `silpo-py-mcp`
+- [x] TDD and implement `check_constraints_node` for constraint satisfaction loop
+- [x] TDD and implement `create_cart_node` for cart link generation
+- [x] TDD and implement `tts_node` with Respeecher API and mock fallback
 
 ## Phase 3: Graph assembly and FastAPI SSE endpoint
 
