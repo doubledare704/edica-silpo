@@ -26,7 +26,7 @@ class NodeName(StrEnum):
 ## 2. State topology (`app/state.py`)
 
 ```python
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, TypedDict
 
 from langchain_core.messages import BaseMessage
 
@@ -34,23 +34,23 @@ from .enums import IntentEnum
 
 
 class AgentState(TypedDict):
-    audio_bytes: Optional[bytes]
-    user_text: Optional[str]
-    intent: Optional[IntentEnum]
+    audio_bytes: bytes | None
+    user_text: str | None
+    intent: IntentEnum | None
     budget: float
-    people_count: Optional[int]
-    dietary_restrictions: List[str]
-    raw_item_requests: List[str]
-    calculated_items: List[Dict[str, Any]]
-    mcp_products: List[Dict[str, Any]]
+    people_count: int | None
+    dietary_restrictions: list[str]
+    raw_item_requests: list[str]
+    calculated_items: list[dict[str, Any]]
+    mcp_products: list[dict[str, Any]]
     total_price: float
     attempts: int
     max_attempts: int
     is_budget_exceeded: bool
-    cart_url: Optional[str]
+    cart_url: str | None
     summary_message: str
-    audio_url: Optional[str]
-    messages: List[BaseMessage]
+    audio_url: str | None
+    messages: list[BaseMessage]
 ```
 
 ## 3. LangGraph topology and conditional edges

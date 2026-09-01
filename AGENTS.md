@@ -1,7 +1,7 @@
 # Universal Coding Agent Guidelines
 
 ## 🛠️ Stack & Runtime Constraints
-- **Language & Runtime:** Python 3.12+ (використовувати `typing.override`, `type` statements, нові фічі типізації).
+- **Language & Runtime:** Python 3.12+ (використовувати `typing.override`, `type` statements, нові фічі типізації, вбудовані дженеріки `dict`, `list`, `X | None` замість `typing.Dict`, `typing.List`, `typing.Optional`).
 - **Package Manager:** `uv` is the required package manager for installs, lockfile sync, and all project commands.
 - **Formatting & Linting:** Use `ruff format` for formatting and `ruff check` for linting; use `pyrefly` for static type / import validation where applicable.
 - **Frontend:** SvelteKit (Svelte 5) + Tailwind CSS + Web Audio API.
@@ -18,6 +18,7 @@
 6. **Validation Gate:** Before declaring work complete, run the relevant project checks through `uv` and the repo's formatter/linter tools, such as `uv run ruff format --check .`, `uv run ruff check .`, and `uv run pyrefly check` when the project is configured for it.
 
 ## 🏗️ Code Quality Guardrails
+- **Modern Typing:** Суворо використовувати вбудовані дженеріки (`dict`, `list`, `set`, `tuple`) та union синтаксис `X | None` / `X | Y` замість `typing.Dict`, `typing.List`, `typing.Optional`, `typing.Union`.
 - **Enums:** Усі ноди (`NodeName`) та інтенти (`IntentEnum`) реалізовувати суворо через `StrEnum`.
 - **FastAPI SSE:** Використовувати нативний `StreamingResponse` (`media_type="text/event-stream"`) без додаткових сторонніх бібліотек.
 - **Checkpoints:** Використовувати `MemorySaver` із `configurable: {"thread_id": ...}` для збереження контексту чату.
