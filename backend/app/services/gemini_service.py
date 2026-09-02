@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -63,7 +64,7 @@ def reset_genai_client() -> None:
 
 
 async def transcribe_audio(audio_bytes: bytes, mime: str = "audio/webm") -> str:
-    """Transcribes audio_bytes via Gemini. Fallback to hardcoded mock on error or mock mode."""
+    """Transcribes audio_bytes via Gemini AsyncClient. Fallback to hardcoded mock on error or mock mode."""
     if not audio_bytes:
         return ""
 
@@ -79,15 +80,31 @@ async def transcribe_audio(audio_bytes: bytes, mime: str = "audio/webm") -> str:
             types.Part.from_bytes(data=audio_bytes, mime_type=mime),
             _GEMINI_TRANSCRIBE_PROMPT,
         ]
-        response = client.models.generate_content(
-            model=settings.GEMINI_MODEL,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                temperature=0.0,
-            ),
-        )
+        logger.info("Gemini transcribe start model=%s mime=%s bytes=%d", settings.GEMINI_MODEL, mime, len(audio_bytes))
+        # Use AsyncClient via client.aio per docs: https://googleapis.github.io/python-genai/
+        # Async path is native; fallback to thread for mocked sync clients in tests
+        try:
+            response = await client.aio.models.generate_content(  # type: ignore[attr-defined]
+                model=settings.GEMINI_MODEL,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                ),
+            )
+        except AttributeError:
+            response = await asyncio.to_thread(
+                client.models.generate_content,
+                model=settings.GEMINI_MODEL,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                ),
+            )
         text = getattr(response, "text", None)
         if text and text.strip():
+            logger.info("Gemini transcribe success chars=%d", len(text.strip()))
             return text.strip()
         # Fallback if empty
         logger.warning("Gemini transcribe returned empty text, using fallback")
@@ -132,15 +149,35 @@ async def parse_intent_multimodal(
         instruction = f"{_GEMINI_INTENT_PROMPT}\nUser input: {prompt_text}"
         contents.append(instruction)
 
-        response = client.models.generate_content(
-            model=settings.GEMINI_MODEL,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                temperature=0.1,
-                response_mime_type="application/json",
-                response_schema=ParsedIntentSchema,
-            ),
+        logger.info(
+            "Gemini parse_intent start model=%s user_text_len=%d has_audio=%s",
+            settings.GEMINI_MODEL,
+            len(prompt_text),
+            bool(audio_bytes),
         )
+        try:
+            response = await client.aio.models.generate_content(  # type: ignore[attr-defined]
+                model=settings.GEMINI_MODEL,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                    response_mime_type="application/json",
+                    response_schema=ParsedIntentSchema,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                ),
+            )
+        except AttributeError:
+            response = await asyncio.to_thread(
+                client.models.generate_content,
+                model=settings.GEMINI_MODEL,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                    response_mime_type="application/json",
+                    response_schema=ParsedIntentSchema,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                ),
+            )
 
         # Prefer parsed attribute if SDK provides it
         parsed = getattr(response, "parsed", None)

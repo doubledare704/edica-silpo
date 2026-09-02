@@ -1,9 +1,11 @@
+import pytest
 from app.enums import IntentEnum
 from app.nodes.parse_intent import parse_intent_node
 from app.state import AgentState
 
 
-def test_parse_intent_contract_fixture() -> None:
+@pytest.mark.asyncio
+async def test_parse_intent_contract_fixture() -> None:
     initial_state: AgentState = {
         "audio_bytes": None,
         "user_text": "Збери кошик для пікніка на 6 людей до 2500 грн, один вегетаріанець",
@@ -23,7 +25,7 @@ def test_parse_intent_contract_fixture() -> None:
         "audio_url": None,
         "messages": [],
     }
-    result = parse_intent_node(initial_state)
+    result = await parse_intent_node(initial_state)
 
     assert result["intent"] == IntentEnum.PARTY
     assert result["budget"] == 2500.0
@@ -32,7 +34,8 @@ def test_parse_intent_contract_fixture() -> None:
     assert len(result["raw_item_requests"]) > 0
 
 
-def test_parse_intent_budget() -> None:
+@pytest.mark.asyncio
+async def test_parse_intent_budget() -> None:
     initial_state: AgentState = {
         "audio_bytes": None,
         "user_text": "Економний кошик продуктів до 1000 грн",
@@ -52,13 +55,14 @@ def test_parse_intent_budget() -> None:
         "audio_url": None,
         "messages": [],
     }
-    result = parse_intent_node(initial_state)
+    result = await parse_intent_node(initial_state)
 
     assert result["intent"] == IntentEnum.BUDGET
     assert result["budget"] == 1000.0
 
 
-def test_parse_intent_empty_text() -> None:
+@pytest.mark.asyncio
+async def test_parse_intent_empty_text() -> None:
     initial_state: AgentState = {
         "audio_bytes": None,
         "user_text": None,
@@ -78,7 +82,7 @@ def test_parse_intent_empty_text() -> None:
         "audio_url": None,
         "messages": [],
     }
-    result = parse_intent_node(initial_state)
+    result = await parse_intent_node(initial_state)
 
     assert result["intent"] in (IntentEnum.PARTY, IntentEnum.BUDGET, None)
     assert result["budget"] == 0.0

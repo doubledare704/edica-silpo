@@ -71,10 +71,13 @@ def _extract_intent_fallback(text: str) -> ParsedIntentSchema:
     )
 
 
-def parse_intent_node(state: AgentState) -> dict[str, Any]:
-    """Extracts structured intent, budget, party size, and dietary restrictions."""
+async def parse_intent_node(state: AgentState) -> dict[str, Any]:
+    """Extracts structured intent via Gemini multimodal, fallback to regex."""
     user_text = state.get("user_text") or ""
-    if not user_text.strip():
+    audio_bytes = state.get("audio_bytes")
+
+    # If both empty, return defaults without calling LLM
+    if not user_text.strip() and not audio_bytes:
         return {
             "intent": state.get("intent") or IntentEnum.PARTY,
             "budget": state.get("budget", 0.0),
@@ -83,7 +86,17 @@ def parse_intent_node(state: AgentState) -> dict[str, Any]:
             "raw_item_requests": state.get("raw_item_requests", []),
         }
 
-    parsed = _extract_intent_fallback(user_text)
+    # Local import to avoid circular dependency
+    from ..services import gemini_service
+
+    try:
+        parsed = await gemini_service.parse_intent_multimodal(
+            user_text=user_text if user_text.strip() else None,
+            audio_bytes=audio_bytes,
+        )
+    except Exception:  # noqa: BLE001 - fallback ensures pipeline never breaks
+        parsed = _extract_intent_fallback(user_text or "")
+
     return {
         "intent": parsed.intent,
         "budget": parsed.budget,

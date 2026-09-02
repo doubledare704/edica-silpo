@@ -9,6 +9,23 @@
       "cwd": "${workspaceFolder}"
     },
     {
+      "name": "Backend: debugpy",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "backend.app.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000"
+      ],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    },
+    {
       "name": "Frontend: Vite",
       "type": "node-terminal",
       "request": "launch",

@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from app.config import Settings
@@ -57,13 +57,17 @@ async def test_transcribe_audio_with_mocked_client(monkeypatch) -> None:
 
     mock_client = MagicMock()
     mock_client.models.generate_content = MagicMock(return_value=mock_response)
+    mock_client.aio = MagicMock()
+    mock_client.aio.models = MagicMock()
+    mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
     with patch("app.services.gemini_service.get_genai_client", return_value=mock_client):
         from app.services.gemini_service import transcribe_audio
 
         result = await transcribe_audio(b"fake_audio", mime="audio/webm")
         assert result == "Збери кошик для офісу на 10 людей до 1500 грн"
-        mock_client.models.generate_content.assert_called_once()
+        # Async path is preferred
+        assert mock_client.aio.models.generate_content.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -118,6 +122,9 @@ async def test_parse_intent_multimodal_with_mocked_client(monkeypatch) -> None:
 
     mock_client = MagicMock()
     mock_client.models.generate_content = MagicMock(return_value=mock_response)
+    mock_client.aio = MagicMock()
+    mock_client.aio.models = MagicMock()
+    mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
     with patch("app.services.gemini_service.get_genai_client", return_value=mock_client):
         from app.services.gemini_service import parse_intent_multimodal
@@ -143,6 +150,9 @@ async def test_parse_intent_multimodal_with_audio_bytes(monkeypatch) -> None:
 
     mock_client = MagicMock()
     mock_client.models.generate_content = MagicMock(return_value=mock_response)
+    mock_client.aio = MagicMock()
+    mock_client.aio.models = MagicMock()
+    mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
     with patch("app.services.gemini_service.get_genai_client", return_value=mock_client):
         from app.services.gemini_service import parse_intent_multimodal
@@ -150,8 +160,8 @@ async def test_parse_intent_multimodal_with_audio_bytes(monkeypatch) -> None:
         result = await parse_intent_multimodal(user_text=None, audio_bytes=b"fake_webm_bytes")
         assert result.intent == IntentEnum.GOURMET
         assert result.people_count == 2
-        # Ensure generate_content called with audio part
-        call_kwargs = mock_client.models.generate_content.call_args
+        # Ensure generate_content called with audio part (via aio)
+        call_kwargs = mock_client.aio.models.generate_content.call_args
         assert call_kwargs is not None
 
 
@@ -167,6 +177,9 @@ async def test_parse_intent_fallback_on_client_error(monkeypatch) -> None:
 
     mock_client = MagicMock()
     mock_client.models.generate_content = MagicMock(side_effect=RuntimeError("API error"))
+    mock_client.aio = MagicMock()
+    mock_client.aio.models = MagicMock()
+    mock_client.aio.models.generate_content = AsyncMock(side_effect=RuntimeError("API error"))
 
     with patch("app.services.gemini_service.get_genai_client", return_value=mock_client):
         from app.services.gemini_service import parse_intent_multimodal
