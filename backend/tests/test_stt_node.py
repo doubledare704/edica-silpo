@@ -1,8 +1,10 @@
+import pytest
 from app.nodes.stt import stt_node
 from app.state import AgentState
 
 
-def test_stt_node_preserves_existing_user_text() -> None:
+@pytest.mark.asyncio
+async def test_stt_node_preserves_existing_user_text() -> None:
     initial_state: AgentState = {
         "audio_bytes": None,
         "user_text": "Збери кошик для вечірки",
@@ -22,11 +24,12 @@ def test_stt_node_preserves_existing_user_text() -> None:
         "audio_url": None,
         "messages": [],
     }
-    result = stt_node(initial_state)
+    result = await stt_node(initial_state)
     assert result["user_text"] == "Збери кошик для вечірки"
 
 
-def test_stt_node_transcribes_audio_bytes_mock() -> None:
+@pytest.mark.asyncio
+async def test_stt_node_transcribes_audio_bytes_mock() -> None:
     initial_state: AgentState = {
         "audio_bytes": b"fake_audio_content",
         "user_text": None,
@@ -46,12 +49,13 @@ def test_stt_node_transcribes_audio_bytes_mock() -> None:
         "audio_url": None,
         "messages": [],
     }
-    result = stt_node(initial_state)
+    result = await stt_node(initial_state)
     assert result["user_text"] is not None
     assert len(result["user_text"]) > 0
 
 
-def test_stt_node_handles_empty_input() -> None:
+@pytest.mark.asyncio
+async def test_stt_node_handles_empty_input() -> None:
     initial_state: AgentState = {
         "audio_bytes": None,
         "user_text": None,
@@ -71,5 +75,5 @@ def test_stt_node_handles_empty_input() -> None:
         "audio_url": None,
         "messages": [],
     }
-    result = stt_node(initial_state)
+    result = await stt_node(initial_state)
     assert result.get("user_text") in (None, "")

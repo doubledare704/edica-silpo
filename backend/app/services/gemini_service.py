@@ -1,12 +1,14 @@
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from google import genai
 from google.genai import types
 
 from ..config import settings
-from ..nodes.parse_intent import ParsedIntentSchema, _extract_intent_fallback
+
+if TYPE_CHECKING:
+    from ..nodes.parse_intent import ParsedIntentSchema
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +100,11 @@ async def transcribe_audio(audio_bytes: bytes, mime: str = "audio/webm") -> str:
 async def parse_intent_multimodal(
     user_text: str | None,
     audio_bytes: bytes | None,
-) -> ParsedIntentSchema:
+) -> "ParsedIntentSchema":
     """Multimodal intent parsing via Gemini structured output. Falls back to regex."""
+    # Local import to avoid circular dependency with nodes module
+    from ..nodes.parse_intent import ParsedIntentSchema, _extract_intent_fallback
+
     # Mock mode -> direct fallback without billing
     if settings.GEMINI_MOCK_MODE or not settings.GEMINI_API_KEY:
         text = user_text or ""
