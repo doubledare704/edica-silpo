@@ -1,0 +1,32 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Backend: uvicorn",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "uv run uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Frontend: Vite",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev --prefix frontend",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Validation: Python gate",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "uv run ruff format . && uv run ruff check . && uv run pyrefly check && uv run pytest backend/tests",
+      "cwd": "${workspaceFolder}"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Dev: backend + frontend",
+      "configurations": ["Backend: uvicorn", "Frontend: Vite"]
+    }
+  ]
+}
