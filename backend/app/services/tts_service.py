@@ -28,7 +28,7 @@ async def generate_audio_gemini(text: str) -> str | None:
 
     try:
         client = get_genai_client()
-        response = client.models.generate_content(
+        response = await client.aio.models.generate_content(
             model=settings.GEMINI_TTS_MODEL,
             contents=formatted,
             config=types.GenerateContentConfig(

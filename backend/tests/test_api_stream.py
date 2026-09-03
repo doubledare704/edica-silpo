@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from app.enums import SSEEvent
 from app.main import app
 from httpx import ASGITransport, AsyncClient
 
@@ -25,9 +26,9 @@ async def test_agent_stream_sse_endpoint() -> None:
             event_names = [line.replace("event: ", "") for line in lines if line.startswith("event: ")]
             data_lines = [line.replace("data: ", "") for line in lines if line.startswith("data: ")]
 
-            assert "session_info" in event_names
-            assert "thinking_step" in event_names
-            assert "node_complete" in event_names
+            assert SSEEvent.SESSION_INFO in event_names
+            assert SSEEvent.THINKING_STEP in event_names
+            assert SSEEvent.NODE_COMPLETE in event_names
 
             # Verify session_info payload
             session_data = json.loads(data_lines[0])

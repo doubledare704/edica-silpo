@@ -1,63 +1,49 @@
-from typing import Any
+"""Hybrid Silpo graph: STT -> shopper_agent (create_agent) -> TTS.
+
+Legacy NodeName values are preserved for the SSE contract; INNER_TO_LEGACY maps
+inner ReAct activity (tools/model) back to the legacy step names.
+"""
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
 from .enums import NodeName
-from .nodes import (
-    check_constraints_node,
-    create_cart_node,
-    mcp_fetch_node,
-    parse_intent_node,
-    plan_domain_logic_node,
-    stt_node,
-    tts_node,
-)
-from .state import AgentState
+from .nodes import stt_node, tts_node
+from .shopper_node import shopper_agent_node
+from .state import SilpoAgentState
+
+INNER_TO_LEGACY: dict[str, NodeName] = {
+    "agent": NodeName.PARSE_INTENT,
+    "model": NodeName.PARSE_INTENT,
+    "parse_intent": NodeName.PARSE_INTENT,
+    "plan_items": NodeName.PLAN_DOMAIN_LOGIC,
+    "fetch_products": NodeName.MCP_FETCH,
+    "check_budget": NodeName.CHECK_CONSTRAINTS,
+    "create_cart": NodeName.CREATE_CART,
+}
+
+LEGACY_SUBSTEP_ORDER: list[NodeName] = [
+    NodeName.PARSE_INTENT,
+    NodeName.PLAN_DOMAIN_LOGIC,
+    NodeName.MCP_FETCH,
+    NodeName.CHECK_CONSTRAINTS,
+    NodeName.CREATE_CART,
+]
 
 
-def _route_constraints(state: AgentState) -> str:
-    """Routes back to plan_domain_logic if budget is exceeded and attempts < max_attempts."""
-    attempts = state.get("attempts", 0)
-    max_attempts = state.get("max_attempts", 3)
-    is_exceeded = state.get("is_budget_exceeded", False)
+def create_silpo_agent_graph(checkpointer: MemorySaver | None = None) -> CompiledStateGraph:
+    """Assembles and compiles the hybrid Silpo graph with checkpointer."""
+    workflow = StateGraph(SilpoAgentState)  # pyrefly: ignore[bad-specialization]
 
-    if is_exceeded and attempts < max_attempts:
-        return NodeName.PLAN_DOMAIN_LOGIC
-    return NodeName.CREATE_CART
+    workflow.add_node(NodeName.STT.value, stt_node)
+    workflow.add_node(NodeName.SHOPPER_AGENT, shopper_agent_node)
+    workflow.add_node(NodeName.TTS.value, tts_node)
 
-
-def create_silpo_agent_graph(checkpointer: MemorySaver | None = None) -> Any:
-    """Assembles and compiles the Silpo Smart Shopper LangGraph graph with checkpointer."""
-    workflow = StateGraph(AgentState)  # type: ignore[type-var]
-
-    # Add specification nodes
-    workflow.add_node(NodeName.STT, stt_node)
-    workflow.add_node(NodeName.PARSE_INTENT, parse_intent_node)
-    workflow.add_node(NodeName.PLAN_DOMAIN_LOGIC, plan_domain_logic_node)
-    workflow.add_node(NodeName.MCP_FETCH, mcp_fetch_node)
-    workflow.add_node(NodeName.CHECK_CONSTRAINTS, check_constraints_node)
-    workflow.add_node(NodeName.CREATE_CART, create_cart_node)
-    workflow.add_node(NodeName.TTS, tts_node)
-
-    # Add edges
-    workflow.add_edge(START, NodeName.STT)
-    workflow.add_edge(NodeName.STT, NodeName.PARSE_INTENT)
-    workflow.add_edge(NodeName.PARSE_INTENT, NodeName.PLAN_DOMAIN_LOGIC)
-    workflow.add_edge(NodeName.PLAN_DOMAIN_LOGIC, NodeName.MCP_FETCH)
-    workflow.add_edge(NodeName.MCP_FETCH, NodeName.CHECK_CONSTRAINTS)
-
-    workflow.add_conditional_edges(
-        NodeName.CHECK_CONSTRAINTS,
-        _route_constraints,
-        {
-            NodeName.PLAN_DOMAIN_LOGIC: NodeName.PLAN_DOMAIN_LOGIC,
-            NodeName.CREATE_CART: NodeName.CREATE_CART,
-        },
-    )
-
-    workflow.add_edge(NodeName.CREATE_CART, NodeName.TTS)
-    workflow.add_edge(NodeName.TTS, END)
+    workflow.add_edge(START, NodeName.STT.value)
+    workflow.add_edge(NodeName.STT.value, NodeName.SHOPPER_AGENT)
+    workflow.add_edge(NodeName.SHOPPER_AGENT, NodeName.TTS.value)
+    workflow.add_edge(NodeName.TTS.value, END)
 
     saver = checkpointer if checkpointer is not None else MemorySaver()
     return workflow.compile(checkpointer=saver)

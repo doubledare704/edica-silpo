@@ -15,6 +15,7 @@ class IntentEnum(StrEnum):
 
 class NodeName(StrEnum):
     STT = "stt"
+    SHOPPER_AGENT = "shopper_agent"
     PARSE_INTENT = "parse_intent"
     PLAN_DOMAIN_LOGIC = "plan_domain_logic"
     MCP_FETCH = "mcp_fetch"
@@ -25,47 +26,58 @@ class NodeName(StrEnum):
 
 ## 2. State topology (`app/state.py`)
 
+Legacy `AgentState` (plain `TypedDict`, kept for node compat) plus hybrid
+`SilpoAgentState(LangChainAgentState)` used by the wrapper graph and `create_agent`
+subgraph — `messages` inherits the `add_messages` reducer; domain fields are
+`NotRequired` with an extra `current_step` tracker:
+
 ```python
-from typing import Any, TypedDict
-
-from langchain_core.messages import BaseMessage
-
-from .enums import IntentEnum
-
-
-class AgentState(TypedDict):
-    audio_bytes: bytes | None
-    user_text: str | None
-    intent: IntentEnum | None
-    budget: float
-    people_count: int | None
-    dietary_restrictions: list[str]
-    raw_item_requests: list[str]
-    calculated_items: list[dict[str, Any]]
-    mcp_products: list[dict[str, Any]]
-    total_price: float
-    attempts: int
-    max_attempts: int
-    is_budget_exceeded: bool
-    cart_url: str | None
-    summary_message: str
-    audio_url: str | None
-    messages: list[BaseMessage]
+class SilpoAgentState(LangChainAgentState):
+    audio_bytes: NotRequired[bytes | None]
+    user_text: NotRequired[str | None]
+    intent: NotRequired[IntentEnum | None]
+    budget: NotRequired[float]
+    people_count: NotRequired[int | None]
+    dietary_restrictions: NotRequired[list[str]]
+    raw_item_requests: NotRequired[list[str]]
+    calculated_items: NotRequired[list[dict[str, Any]]]
+    mcp_products: NotRequired[list[dict[str, Any]]]
+    total_price: NotRequired[float]
+    attempts: NotRequired[int]
+    max_attempts: NotRequired[int]
+    is_budget_exceeded: NotRequired[bool]
+    cart_url: NotRequired[str | None]
+    summary_message: NotRequired[str]
+    audio_url: NotRequired[str | None]
+    current_step: NotRequired[str]
 ```
 
 ## 3. LangGraph topology and conditional edges
 
+Hybrid wrapper (LangGraph v1, `create_agent` subgraph). Physical nodes: `stt`,
+`shopper_agent`, `tts`. Legacy `NodeName` values are preserved for the SSE
+contract — `INNER_TO_LEGACY` in `app/graph.py` maps inner ReAct activity back to
+legacy step names, and `POST /api/agent/stream` expands `shopper_agent` into the
+five legacy `thinking_step` events.
+
 ```text
-[STT] ➔ [PARSE_INTENT] ➔ [PLAN_DOMAIN_LOGIC] ➔ [MCP_FETCH] ➔ [CHECK_CONSTRAINTS]
-                                                                      |
-            ┌───────────────────────────────────────────────────────┴────┐
-            │ [is_budget_exceeded && attempts < max_attempts]          │
-            ▼                                                          ▼
-      [PLAN_DOMAIN_LOGIC]                                          [CREATE_CART]
-                                                                      │
-                                                                      ▼
-                                                                   [TTS] ➔ END
+[STT] ➔ [SHOPPER_AGENT] ➔ [TTS] ➔ END
+            |
+            ├─ prod (GEMINI_API_KEY set): create_agent ReAct loop
+            │    [parse→plan_items ➔ fetch_products ➔ check_budget ⇄(retry)➔ create_cart]
+            │    router: ToolStrategy(IntentRoute) strict IntentEnum;
+            │    prompts: intent_router dynamic_prompt; guard: budget_guard
+            └─ offline/mock or LLM error: deterministic fallback
+                 [PARSE_INTENT] ➔ [PLAN_DOMAIN_LOGIC] ➔ [MCP_FETCH] ➔ [CHECK_CONSTRAINTS]
+                                                                       |
+             ┌───────────────────────────────────────────────────────┴────┐
+             │ [is_budget_exceeded && attempts < max_attempts]          │
+             ▼                                                          ▼
+       [PLAN_DOMAIN_LOGIC]                                          [CREATE_CART]
 ```
+
+All Gemini calls are pure-async via `client.aio.models.generate_content` — no
+`asyncio.to_thread` sync fallback anywhere (`rg to_thread backend/` is empty).
 
 ## 4. Respeecher TTS preparation and formatting contract
 
@@ -84,6 +96,9 @@ All text responses passed into `tts_node` before sending them to the Respeecher 
 - **Error fallback:** a TTS failure must not block the main `summary_message`; set `audio_url = None` instead.
 
 ## 5. SSE protocol contract (`POST /api/agent/stream`)
+
+Event names are defined in `SSEEvent` (`app/enums.py`) and emitted via
+`fastapi.sse.ServerSentEvent` with `response_class=EventSourceResponse`:
 
 - `event: session_info` → `{"thread_id": "string"}`
 - `event: thinking_step` → `{"node": "string", "status": "string"}`

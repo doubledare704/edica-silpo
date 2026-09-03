@@ -1,13 +1,13 @@
 import pytest
 from app.enums import IntentEnum, NodeName
-from app.graph import create_silpo_agent_graph
-from app.state import AgentState
+from app.graph import INNER_TO_LEGACY, create_silpo_agent_graph
+from app.state import SilpoAgentState
 
 
 @pytest.mark.asyncio
 async def test_silpo_agent_graph_full_run() -> None:
     graph = create_silpo_agent_graph()
-    initial_state: AgentState = {
+    initial_state: SilpoAgentState = {
         "audio_bytes": None,
         "user_text": "Збери кошик для пікніка на 6 людей до 2500 грн, один вегетаріанець",
         "intent": None,
@@ -40,6 +40,12 @@ async def test_silpo_agent_graph_full_run() -> None:
 @pytest.mark.asyncio
 async def test_silpo_agent_graph_nodes_registered() -> None:
     graph = create_silpo_agent_graph()
-    # Check that all spec nodes are in the graph definition
+    # Hybrid wrapper: 3 physical nodes (decision a)
+    for physical in [NodeName.STT, NodeName.SHOPPER_AGENT, NodeName.TTS]:
+        assert physical in graph.nodes, f"missing physical node {physical}"
+    # Legacy NodeName values preserved plus wrapper member (decision c)
+    assert len(list(NodeName)) == 8
+    # Every legacy step is emitted: STT/SHOPPER_AGENT/TTS as physical nodes, rest via mapper
+    emitted = {"stt", "shopper_agent", "tts"} | {n.value for n in INNER_TO_LEGACY.values()}
     for node in NodeName:
-        assert node.value in graph.nodes or node in graph.nodes
+        assert node.value in emitted, f"legacy step {node.value} not emitted"

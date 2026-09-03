@@ -1,5 +1,6 @@
-from typing import Any
+from typing import Any, NotRequired
 
+from langchain.agents import AgentState as LangChainAgentState
 from langchain_core.messages import BaseMessage
 from typing_extensions import TypedDict
 
@@ -24,3 +25,25 @@ class AgentState(TypedDict):
     summary_message: str
     audio_url: str | None
     messages: list[BaseMessage]
+
+
+class SilpoAgentState(LangChainAgentState):
+    """Hybrid create_agent state: inherits messages (add_messages reducer) + domain fields."""
+
+    audio_bytes: NotRequired[bytes | None]
+    user_text: NotRequired[str | None]
+    intent: NotRequired[IntentEnum | None]
+    budget: NotRequired[float]
+    people_count: NotRequired[int | None]
+    dietary_restrictions: NotRequired[list[str]]
+    raw_item_requests: NotRequired[list[str]]
+    calculated_items: NotRequired[list[dict[str, Any]]]
+    mcp_products: NotRequired[list[dict[str, Any]]]
+    total_price: NotRequired[float]
+    attempts: NotRequired[int]
+    max_attempts: NotRequired[int]
+    is_budget_exceeded: NotRequired[bool]
+    cart_url: NotRequired[str | None]
+    summary_message: NotRequired[str]
+    audio_url: NotRequired[str | None]
+    current_step: NotRequired[str]

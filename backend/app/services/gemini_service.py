@@ -1,6 +1,6 @@
-import asyncio
 import json
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from google import genai
@@ -63,6 +63,31 @@ def reset_genai_client() -> None:
     _client = None
 
 
+async def _agenerate(
+    *,
+    model: str,
+    contents: list[Any],
+    config: types.GenerateContentConfig,
+) -> Any:
+    """Pure-async Gemini call via client.aio. No sync fallback (decision #2)."""
+    client = get_genai_client()
+    return await client.aio.models.generate_content(
+        model=model,
+        contents=contents,
+        config=config,
+    )
+
+
+def _extract_json_object(raw: str) -> str:
+    """Extracts first {...} JSON object, tolerating markdown fences."""
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if match:
+            return match.group(0)
+    return cleaned
+
+
 async def transcribe_audio(audio_bytes: bytes, mime: str = "audio/webm") -> str:
     """Transcribes audio_bytes via Gemini AsyncClient. Fallback to hardcoded mock on error or mock mode."""
     if not audio_bytes:
@@ -74,34 +99,21 @@ async def transcribe_audio(audio_bytes: bytes, mime: str = "audio/webm") -> str:
         return _MOCK_TRANSCRIPTION
 
     try:
-        client = get_genai_client()
         # Build contents: inline audio bytes + transcription prompt
         contents: list[Any] = [
             types.Part.from_bytes(data=audio_bytes, mime_type=mime),
             _GEMINI_TRANSCRIBE_PROMPT,
         ]
         logger.info("Gemini transcribe start model=%s mime=%s bytes=%d", settings.GEMINI_MODEL, mime, len(audio_bytes))
-        # Use AsyncClient via client.aio per docs: https://googleapis.github.io/python-genai/
-        # Async path is native; fallback to thread for mocked sync clients in tests
-        try:
-            response = await client.aio.models.generate_content(  # type: ignore[attr-defined]
-                model=settings.GEMINI_MODEL,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    temperature=0.0,
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-                ),
-            )
-        except AttributeError:
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=settings.GEMINI_MODEL,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    temperature=0.0,
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-                ),
-            )
+        # Pure async via client.aio per https://googleapis.github.io/python-genai/
+        response = await _agenerate(
+            model=settings.GEMINI_MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                temperature=0.0,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            ),
+        )
         text = getattr(response, "text", None)
         if text and text.strip():
             logger.info("Gemini transcribe success chars=%d", len(text.strip()))
@@ -133,7 +145,6 @@ async def parse_intent_multimodal(
         return _extract_intent_fallback(text)
 
     try:
-        client = get_genai_client()
         contents: list[Any] = []
 
         # If audio provided, include it for better confidence (multimodal)
@@ -155,29 +166,16 @@ async def parse_intent_multimodal(
             len(prompt_text),
             bool(audio_bytes),
         )
-        try:
-            response = await client.aio.models.generate_content(  # type: ignore[attr-defined]
-                model=settings.GEMINI_MODEL,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    temperature=0.1,
-                    response_mime_type="application/json",
-                    response_schema=ParsedIntentSchema,
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-                ),
-            )
-        except AttributeError:
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=settings.GEMINI_MODEL,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    temperature=0.1,
-                    response_mime_type="application/json",
-                    response_schema=ParsedIntentSchema,
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-                ),
-            )
+        response = await _agenerate(
+            model=settings.GEMINI_MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                response_mime_type="application/json",
+                response_schema=ParsedIntentSchema,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            ),
+        )
 
         # Prefer parsed attribute if SDK provides it
         parsed = getattr(response, "parsed", None)
@@ -186,16 +184,7 @@ async def parse_intent_multimodal(
 
         text = getattr(response, "text", None)
         if text and text.strip():
-            # Clean potential markdown code fences
-            cleaned = text.strip()
-            if cleaned.startswith("```"):
-                # Remove ```json ... ```
-                cleaned = cleaned.strip("`")
-                # Find first { and last }
-                start = cleaned.find("{")
-                end = cleaned.rfind("}")
-                if start != -1 and end != -1:
-                    cleaned = cleaned[start : end + 1]
+            cleaned = _extract_json_object(text)
             data = json.loads(cleaned)
             return ParsedIntentSchema.model_validate(data)
 

@@ -47,3 +47,17 @@
 - [ ] **Phase G. E2E Hardening** — SSE `app/main.py:47-101` + `app/graph.py:30-63` `MemorySaver` `thread_id`, `ruff`/`pyrefly` gates; `frontend/src/lib/components/VoiceInput.svelte:28-44` WebM record + base64, `AgentTimeline.svelte:61-112` POST SSE — Tests: `tests/test_api_stream.py`, `tests/test_graph.py`, `frontend vitest run`; Validation gate per `AGENTS.md:6`: `uv run ruff format --check . && uv run ruff check . && uv run pyrefly check && uv run pytest backend/tests`
 
 > Each phase: create failing test first -> minimal impl -> `uv run ruff format --check . && uv run ruff check . && uv run pyrefly check && uv run pytest backend/tests` -> mark `[x]` and STOP for review (single active task per `AGENTS.md:2-3`).
+
+## Phase 7: Hybrid create_agent migration (LangGraph v1 + pure-async Gemini, 2026-09-03)
+
+> Waiver of `AGENTS.md:1` per user decisions: (a) hybrid 3-node wrapper, (b) enum-routed
+> structured output + per-intent prompts, (c) keep all `NodeName` values. Outer graph
+> `START → stt → shopper_agent → tts → END`; middle 5 steps become ReAct tools inside
+> `create_agent` subgraph (prod) with deterministic fallback offline. No `to_thread`.
+
+- [x] **Phase H1. Deps** — Add `langchain>=1.0.0`, `langchain-google-genai>=2.0.0` to `pyproject.toml`; `create_agent`/`AgentState`/`ToolStrategy` import smoke
+- [x] **Phase H2. State** — New `SilpoAgentState(LangChainAgentState)` in `app/state.py` (`messages` inherits `add_messages` reducer, domain fields `NotRequired` + `current_step`); legacy `AgentState` kept for node compat — Tests: `tests/test_silpo_agent_state.py`
+- [x] **Phase H6. Pure-async** — `services/gemini_service.py` single `_agenerate()` via `client.aio` (no `to_thread`), regex JSON extraction; `services/tts_service.py` `await client.aio` — Tests: `tests/test_pure_async_gemini.py`
+- [x] **Phase H3. Tools** — New `app/agent_tools.py`: async `plan_items`/`fetch_products`/`check_budget`/`create_cart` returning `Command` updates — Tests: `tests/test_agent_tools.py`
+- [x] **Phase H4. Router+factory** — New `app/router_schema.py` (`IntentRoute` strict `IntentEnum`), `app/prompts.py` (`BASE_PROMPT` + `INTENT_PROMPTS`), `app/middleware.py` (`intent_router` dynamic_prompt + `budget_guard`), `app/agent_factory.py` (`create_agent` + `ToolStrategy(IntentRoute)`, offline-safe placeholder key) — Tests: `tests/test_agent_factory.py`
+- [x] **Phase H5. Wrapper+SSE** — New `app/shopper_node.py` (prod `create_agent`, offline deterministic fallback, error fallback); `app/graph.py` 3-node wrapper + `INNER_TO_LEGACY`/`LEGACY_SUBSTEP_ORDER`; `app/main.py` expands `shopper_agent` (`== NodeName.SHOPPER_AGENT`, StrEnum) into legacy SSE steps; 7 legacy `NodeName` values kept + `SHOPPER_AGENT` member — Tests: `tests/test_shopper_node.py`, updated `tests/test_graph.py`

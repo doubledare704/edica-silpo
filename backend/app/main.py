@@ -1,20 +1,19 @@
 import base64
 import binascii
-import json
 import logging
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterable
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .enums import NodeName
-from .graph import create_silpo_agent_graph
-from .state import AgentState
+from .enums import NodeName, SSEEvent
+from .graph import LEGACY_SUBSTEP_ORDER, create_silpo_agent_graph
+from .state import SilpoAgentState
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +47,11 @@ async def _sse_generator(
     user_text: str | None,
     thread_id: str,
     audio_bytes: bytes | None = None,
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[ServerSentEvent, None]:
     # 1. Emit session_info event
-    yield f"event: session_info\ndata: {json.dumps({'thread_id': thread_id})}\n\n"
+    yield ServerSentEvent(event=SSEEvent.SESSION_INFO, data={"thread_id": thread_id})
 
-    initial_state: AgentState = {
+    initial_state: SilpoAgentState = {
         "audio_bytes": audio_bytes,
         "user_text": user_text,
         "intent": None,
@@ -79,13 +78,35 @@ async def _sse_generator(
         for node_name, node_output in chunk.items():
             accumulated_state.update(node_output)
 
+            if node_name == NodeName.SHOPPER_AGENT:
+                # Expand the ReAct subgraph into legacy SSE steps (NodeName contract)
+                for legacy in LEGACY_SUBSTEP_ORDER:
+                    yield ServerSentEvent(
+                        event=SSEEvent.THINKING_STEP, data={"node": legacy.value, "status": "completed"}
+                    )
+                    if legacy == NodeName.MCP_FETCH:
+                        yield ServerSentEvent(
+                            event=SSEEvent.TOOL_START,
+                            data={
+                                "tool": "silpo-py-mcp",
+                                "details": {"items": accumulated_state.get("calculated_items")},
+                            },
+                        )
+                        yield ServerSentEvent(
+                            event=SSEEvent.TOOL_END, data={"tool": "silpo-py-mcp", "status": "completed"}
+                        )
+                continue
+
             # Emit thinking_step event
-            yield f"event: thinking_step\ndata: {json.dumps({'node': node_name, 'status': 'completed'})}\n\n"
+            yield ServerSentEvent(event=SSEEvent.THINKING_STEP, data={"node": node_name, "status": "completed"})
 
             # Emit tool events for MCP node
             if node_name == NodeName.MCP_FETCH:
-                yield f"event: tool_start\ndata: {json.dumps({'tool': 'silpo-py-mcp', 'details': {'items': accumulated_state.get('calculated_items')}})}\n\n"
-                yield f"event: tool_end\ndata: {json.dumps({'tool': 'silpo-py-mcp', 'status': 'completed'})}\n\n"
+                yield ServerSentEvent(
+                    event=SSEEvent.TOOL_START,
+                    data={"tool": "silpo-py-mcp", "details": {"items": accumulated_state.get("calculated_items")}},
+                )
+                yield ServerSentEvent(event=SSEEvent.TOOL_END, data={"tool": "silpo-py-mcp", "status": "completed"})
 
     # Emit final node_complete event
     final_payload = {
@@ -97,11 +118,11 @@ async def _sse_generator(
         "summary": accumulated_state.get("summary_message"),
         "audio_url": accumulated_state.get("audio_url"),
     }
-    yield f"event: node_complete\ndata: {json.dumps(final_payload)}\n\n"
+    yield ServerSentEvent(event=SSEEvent.NODE_COMPLETE, data=final_payload)
 
 
-@app.post("/api/agent/stream")
-async def stream_agent_endpoint(request: AgentStreamRequest) -> StreamingResponse:
+@app.post("/api/agent/stream", response_class=EventSourceResponse)
+async def stream_agent_endpoint(request: AgentStreamRequest) -> AsyncIterable[ServerSentEvent]:
     """Streams LangGraph agent progress and final shopping cart via Server-Sent Events (SSE)."""
     audio_bytes = None
     if request.audio_base64:
@@ -110,7 +131,5 @@ async def stream_agent_endpoint(request: AgentStreamRequest) -> StreamingRespons
         except (binascii.Error, ValueError) as exc:
             logger.debug("Failed to decode base64 audio: %s", exc)
 
-    return StreamingResponse(
-        _sse_generator(request.user_text, request.thread_id, audio_bytes),
-        media_type="text/event-stream",
-    )
+    async for event in _sse_generator(request.user_text, request.thread_id, audio_bytes):
+        yield event
