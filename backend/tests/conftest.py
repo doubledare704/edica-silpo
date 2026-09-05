@@ -1,5 +1,4 @@
 import pytest
-from app.services import gemini_service
 
 
 @pytest.fixture(autouse=True)
@@ -7,7 +6,6 @@ def isolate_example_env(monkeypatch):
     """Enforce tests use .env.example, not real .env with secrets.
 
     - Clears real secret env vars that would override .env.example defaults.
-    - Resets Gemini singleton client between tests.
     - Ensures config singleton reflects example env (empty keys) unless test explicitly patches.
     """
     # Remove secrets that could be set in shell or by previous tests via os.environ
@@ -28,9 +26,6 @@ def isolate_example_env(monkeypatch):
     ]:
         monkeypatch.delenv(key, raising=False)
 
-    # Reset lazy singleton so next get_genai_client re-evaluates settings
-    gemini_service._client = None
-
     # Also reset app.config.settings singleton attributes to example defaults
     # by re-reading .env.example via fresh Settings instance and copying values.
     # This ensures global settings doesn't leak real .env values from pre-test import.
@@ -49,5 +44,3 @@ def isolate_example_env(monkeypatch):
         monkeypatch.setattr(settings, field, getattr(example_settings, field))
 
     yield
-
-    gemini_service._client = None

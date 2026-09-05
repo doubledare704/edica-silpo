@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from app.enums import IntentEnum
-from app.nodes.parse_intent import ParsedIntentSchema
+from app.intent_schema import ParsedIntentSchema
 from app.state import SilpoAgentState
 
 
@@ -39,7 +39,6 @@ async def test_parse_intent_uses_gemini_structured_output(monkeypatch) -> None:
 
     monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
     monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
-    svc._client = None  # type: ignore[attr-defined]
 
     gemini_result = ParsedIntentSchema(
         intent=IntentEnum.GOURMET,
@@ -70,7 +69,6 @@ async def test_parse_intent_multimodal_audio_path(monkeypatch) -> None:
 
     monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
     monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
-    svc._client = None  # type: ignore[attr-defined]
 
     gemini_result = ParsedIntentSchema(
         intent=IntentEnum.OFFICE,
@@ -98,7 +96,6 @@ async def test_parse_intent_handles_office_gourmet_via_llm(monkeypatch) -> None:
 
     monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
     monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
-    svc._client = None  # type: ignore[attr-defined]
 
     # Office
     office_result = ParsedIntentSchema(
@@ -151,7 +148,6 @@ async def test_parse_intent_fallback_when_gemini_fails(monkeypatch) -> None:
 
     monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
     monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
-    svc._client = None  # type: ignore[attr-defined]
 
     mock_parse = AsyncMock(side_effect=RuntimeError("gemini down"))
     with patch("app.services.gemini_service.parse_intent_multimodal", mock_parse):

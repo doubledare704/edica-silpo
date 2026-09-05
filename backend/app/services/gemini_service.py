@@ -1,66 +1,30 @@
 import json
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from google import genai
 from google.genai import types
 
+from ..common.prompts import (
+    _GEMINI_INTENT_PROMPT,
+    _GEMINI_TRANSCRIBE_PROMPT,
+    _MOCK_TRANSCRIPTION,
+)
 from ..config import settings
-
-if TYPE_CHECKING:
-    from ..nodes.parse_intent import ParsedIntentSchema
+from ..intent_schema import ParsedIntentSchema, extract_intent_fallback
 
 logger = logging.getLogger(__name__)
 
-_client: genai.Client | None = None
-
-_MOCK_TRANSCRIPTION = "Збери кошик для пікніка на 6 людей до 2500 грн, один вегетаріанець"
-
-_GEMINI_TRANSCRIBE_PROMPT = (
-    "Transcribe verbatim in Ukrainian, no translation. Return only the transcription text, no extra formatting."
-)
-
-_GEMINI_INTENT_PROMPT = (
-    "Ти асистент Silpo Smart Shopper. Визнач IntentEnum {party, budget, office, gourmet}, "
-    "budget (грн), people_count, dietary_restrictions [vegetarian, vegan, lactose_free, gluten_free], "
-    "raw_item_requests (укр назви товарів, 2-5 шт). "
-    "Відповідай JSON строго за схемою. Приклади: "
-    "'Збери кошик для пікніка на 6 людей до 2500 грн, один вегетаріанець' -> "
-    '{"intent":"party","budget":2500,"people_count":6,"dietary_restrictions":["vegetarian"],'
-    '"raw_item_requests":["м\'ясо","овочі","напої","вугілля"]}; '
-    "'Економний кошик до 1000 грн' -> "
-    '{"intent":"budget","budget":1000,"people_count":null,"dietary_restrictions":[],'
-    '"raw_item_requests":["молоко","хліб","яйця","масло","крупа"]}. '
-    "Мова виходу: enum English, сутності Ukrainian."
-)
-
 
 def get_genai_client() -> genai.Client:
-    """Lazy singleton for google-genai Client."""
-    global _client
-    if _client is not None:
-        return _client
+    """Create a Gemini client for the current operation."""
     if settings.GEMINI_MOCK_MODE:
-        # In mock mode allow missing key, but still need a client for tests that patch it
-        # If key missing, tests will patch get_genai_client directly, so we raise only if not mocked
-        # Create a dummy client that will be patched; if not patched, calls will fail gracefully via try/except
         if not settings.GEMINI_API_KEY:
-            # Return a placeholder that will be used only when mocked in tests
-            # For real mock mode without billing, transcription/parse fallback doesn't need client
             raise RuntimeError("GEMINI_API_KEY is not set (mock mode needs no real calls, but client requested)")
-        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        return _client
-    if not settings.GEMINI_API_KEY:
+    elif not settings.GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY is not set and GEMINI_MOCK_MODE is False")
-    _client = genai.Client(api_key=settings.GEMINI_API_KEY)
-    return _client
-
-
-def reset_genai_client() -> None:
-    """Reset singleton for testing."""
-    global _client
-    _client = None
+    return genai.Client(api_key=settings.GEMINI_API_KEY)
 
 
 async def _agenerate(
@@ -68,7 +32,7 @@ async def _agenerate(
     model: str,
     contents: list[Any],
     config: types.GenerateContentConfig,
-) -> Any:
+) -> types.GenerateContentResponse:
     """Pure-async Gemini call via client.aio. No sync fallback (decision #2)."""
     client = get_genai_client()
     return await client.aio.models.generate_content(
@@ -93,13 +57,11 @@ async def transcribe_audio(audio_bytes: bytes, mime: str = "audio/webm") -> str:
     if not audio_bytes:
         return ""
 
-    # Mock mode or missing key -> deterministic fallback to keep tests green
     if settings.GEMINI_MOCK_MODE or not settings.GEMINI_API_KEY:
         logger.debug("Gemini transcribe mock mode, returning fallback")
         return _MOCK_TRANSCRIPTION
 
     try:
-        # Build contents: inline audio bytes + transcription prompt
         contents: list[Any] = [
             types.Part.from_bytes(data=audio_bytes, mime_type=mime),
             _GEMINI_TRANSCRIBE_PROMPT,
@@ -114,11 +76,10 @@ async def transcribe_audio(audio_bytes: bytes, mime: str = "audio/webm") -> str:
                 automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
             ),
         )
-        text = getattr(response, "text", None)
+        text = response.text
         if text and text.strip():
             logger.info("Gemini transcribe success chars=%d", len(text.strip()))
             return text.strip()
-        # Fallback if empty
         logger.warning("Gemini transcribe returned empty text, using fallback")
         return _MOCK_TRANSCRIPTION
     except Exception as exc:  # noqa: BLE001 - broad for network/billing fallback
@@ -129,31 +90,23 @@ async def transcribe_audio(audio_bytes: bytes, mime: str = "audio/webm") -> str:
 async def parse_intent_multimodal(
     user_text: str | None,
     audio_bytes: bytes | None,
-) -> "ParsedIntentSchema":
+) -> ParsedIntentSchema:
     """Multimodal intent parsing via Gemini structured output. Falls back to regex."""
-    # Local import to avoid circular dependency with nodes module
-    from ..nodes.parse_intent import ParsedIntentSchema, _extract_intent_fallback
-
-    # Mock mode -> direct fallback without billing
     if settings.GEMINI_MOCK_MODE or not settings.GEMINI_API_KEY:
         text = user_text or ""
         if audio_bytes and not text.strip():
-            # Simulate transcription fallback then parse
             text = _MOCK_TRANSCRIPTION
         if not text.strip():
             return ParsedIntentSchema()
-        return _extract_intent_fallback(text)
+        return extract_intent_fallback(text)
 
     try:
         contents: list[Any] = []
 
-        # If audio provided, include it for better confidence (multimodal)
         if audio_bytes:
-            # Detect mime: plan keeps WebM
             mime = "audio/webm"
             contents.append(types.Part.from_bytes(data=audio_bytes, mime_type=mime))
 
-        # Always include text prompt: either user_text or transcribe hint
         prompt_text = user_text or ""
         if not prompt_text.strip() and audio_bytes:
             prompt_text = "Transcribe and parse intent from audio."
@@ -176,20 +129,18 @@ async def parse_intent_multimodal(
                 automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
             ),
         )
-
-        # Prefer parsed attribute if SDK provides it
-        parsed = getattr(response, "parsed", None)
+        parsed = response.parsed
         if parsed is not None and isinstance(parsed, ParsedIntentSchema):
             return parsed
 
-        text = getattr(response, "text", None)
+        text = response.text
         if text and text.strip():
             cleaned = _extract_json_object(text)
             data = json.loads(cleaned)
             return ParsedIntentSchema.model_validate(data)
 
         logger.warning("Gemini parse_intent returned empty text, using fallback")
-        return _extract_intent_fallback(user_text or _MOCK_TRANSCRIPTION)
+        return extract_intent_fallback(user_text or _MOCK_TRANSCRIPTION)
 
     except Exception as exc:  # noqa: BLE001
         logger.warning("Gemini parse_intent failed: %s, using fallback", exc)
@@ -198,4 +149,4 @@ async def parse_intent_multimodal(
             fallback_text = _MOCK_TRANSCRIPTION
         if not fallback_text.strip():
             return ParsedIntentSchema()
-        return _extract_intent_fallback(fallback_text)
+        return extract_intent_fallback(fallback_text)

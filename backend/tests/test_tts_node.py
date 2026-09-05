@@ -6,6 +6,7 @@ from app.enums import IntentEnum
 from app.nodes.tts import format_ukrainian_speech_text, tts_node
 from app.services import tts_service
 from app.state import SilpoAgentState
+from google.genai import types
 
 
 def test_format_ukrainian_speech_text() -> None:
@@ -105,7 +106,15 @@ async def test_generate_audio_gemini_saves_output_audio(monkeypatch, tmp_path) -
     monkeypatch.setattr(tts_service.settings, "GEMINI_MOCK_MODE", False)
     monkeypatch.setattr(tts_service.settings, "GEMINI_API_KEY", "fake-key")
     monkeypatch.setattr(tts_service, "_get_audio_dir", lambda: tmp_path)
-    response = SimpleNamespace(output_audio=SimpleNamespace(data=b"audio-bytes"))
+    response = types.GenerateContentResponse(
+        candidates=[
+            types.Candidate(
+                content=types.Content(
+                    parts=[types.Part(inline_data=types.Blob(mime_type="audio/mpeg", data=b"audio-bytes"))]
+                )
+            )
+        ]
+    )
     client = SimpleNamespace(
         aio=SimpleNamespace(models=SimpleNamespace(generate_content=AsyncMock(return_value=response)))
     )

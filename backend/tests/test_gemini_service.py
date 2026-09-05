@@ -3,6 +3,25 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from app.config import Settings
 from app.enums import IntentEnum
+from google import genai
+
+
+def test_get_genai_client_creates_client_without_module_cache(monkeypatch) -> None:
+    import app.services.gemini_service as svc
+
+    monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
+    monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
+    clients = [MagicMock(spec=genai.Client), MagicMock(spec=genai.Client)]
+    client_factory = MagicMock(side_effect=clients)
+    monkeypatch.setattr(svc.genai, "Client", client_factory)
+
+    first = svc.get_genai_client()
+    second = svc.get_genai_client()
+
+    assert first is clients[0]
+    assert second is clients[1]
+    assert first is not second
+    assert client_factory.call_count == 2
 
 
 def test_default_gemini_settings() -> None:
@@ -32,7 +51,6 @@ async def test_transcribe_audio_mock_mode_returns_fallback(monkeypatch) -> None:
 
     monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", True)
     monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "")
-    svc._client = None  # type: ignore[attr-defined]
     from app.services.gemini_service import transcribe_audio
 
     result = await transcribe_audio(b"fake_audio")
@@ -50,7 +68,6 @@ async def test_transcribe_audio_with_mocked_client(monkeypatch) -> None:
 
     monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
     monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
-    svc._client = None  # type: ignore[attr-defined]
 
     mock_response = MagicMock()
     mock_response.text = "Збери кошик для офісу на 10 людей до 1500 грн"
@@ -78,7 +95,6 @@ async def test_transcribe_audio_missing_key_raises(monkeypatch) -> None:
 
     monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
     monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "")
-    svc._client = None  # type: ignore[attr-defined]
 
     from app.services.gemini_service import get_genai_client
 
@@ -93,7 +109,6 @@ async def test_parse_intent_multimodal_mock_mode_fallback(monkeypatch) -> None:
 
     monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", True)
     monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "")
-    svc._client = None  # type: ignore[attr-defined]
     from app.services.gemini_service import parse_intent_multimodal
 
     result = await parse_intent_multimodal(
@@ -113,7 +128,6 @@ async def test_parse_intent_multimodal_with_mocked_client(monkeypatch) -> None:
 
     monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
     monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
-    svc._client = None  # type: ignore[attr-defined]
 
     mock_response = MagicMock()
     mock_response.text = '{"intent": "budget", "budget": 1000.0, "people_count": null, "dietary_restrictions": [], "raw_item_requests": ["молоко", "хліб", "яйця"]}'
@@ -143,7 +157,6 @@ async def test_parse_intent_multimodal_with_audio_bytes(monkeypatch) -> None:
 
     monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
     monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
-    svc._client = None  # type: ignore[attr-defined]
 
     mock_response = MagicMock()
     mock_response.text = '{"intent": "gourmet", "budget": 0.0, "people_count": 2, "dietary_restrictions": [], "raw_item_requests": ["сир", "вино"]}'
@@ -173,7 +186,6 @@ async def test_parse_intent_fallback_on_client_error(monkeypatch) -> None:
 
     monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
     monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
-    svc._client = None  # type: ignore[attr-defined]
 
     mock_client = MagicMock()
     mock_client.models.generate_content = MagicMock(side_effect=RuntimeError("API error"))

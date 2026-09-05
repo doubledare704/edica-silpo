@@ -1,6 +1,6 @@
 """Explicit async Silpo workflow with a bounded budget retry loop."""
 
-from typing import Literal
+from typing import Any, Literal, cast
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -30,23 +30,23 @@ def route_constraints(state: SilpoAgentState) -> Literal["plan_domain_logic", "c
 
 def create_silpo_agent_graph(checkpointer: MemorySaver | None = None) -> CompiledStateGraph:
     """Assemble and compile the explicit async workflow with a checkpointer."""
-    workflow = StateGraph(SilpoAgentState)  # pyrefly: ignore[bad-specialization]
+    workflow = StateGraph(cast(type[Any], SilpoAgentState))
 
-    workflow.add_node(NodeName.STT.value, stt_node)
-    workflow.add_node(NodeName.PARSE_INTENT.value, parse_intent_node)
-    workflow.add_node(NodeName.PLAN_DOMAIN_LOGIC.value, plan_domain_logic_node)
-    workflow.add_node(NodeName.MCP_FETCH.value, mcp_fetch_node)
-    workflow.add_node(NodeName.CHECK_CONSTRAINTS.value, check_constraints_node)
-    workflow.add_node(NodeName.CREATE_CART.value, create_cart_node)
-    workflow.add_node(NodeName.TTS.value, tts_node)
+    workflow.add_node(NodeName.STT, stt_node)
+    workflow.add_node(NodeName.PARSE_INTENT, parse_intent_node)
+    workflow.add_node(NodeName.PLAN_DOMAIN_LOGIC, plan_domain_logic_node)
+    workflow.add_node(NodeName.MCP_FETCH, mcp_fetch_node)
+    workflow.add_node(NodeName.CHECK_CONSTRAINTS, check_constraints_node)
+    workflow.add_node(NodeName.CREATE_CART, create_cart_node)
+    workflow.add_node(NodeName.TTS, tts_node)
 
-    workflow.add_edge(START, NodeName.STT.value)
-    workflow.add_edge(NodeName.STT.value, NodeName.PARSE_INTENT.value)
-    workflow.add_edge(NodeName.PARSE_INTENT.value, NodeName.PLAN_DOMAIN_LOGIC.value)
-    workflow.add_edge(NodeName.PLAN_DOMAIN_LOGIC.value, NodeName.MCP_FETCH.value)
-    workflow.add_edge(NodeName.MCP_FETCH.value, NodeName.CHECK_CONSTRAINTS.value)
+    workflow.add_edge(START, NodeName.STT)
+    workflow.add_edge(NodeName.STT, NodeName.PARSE_INTENT)
+    workflow.add_edge(NodeName.PARSE_INTENT, NodeName.PLAN_DOMAIN_LOGIC)
+    workflow.add_edge(NodeName.PLAN_DOMAIN_LOGIC, NodeName.MCP_FETCH)
+    workflow.add_edge(NodeName.MCP_FETCH, NodeName.CHECK_CONSTRAINTS)
     workflow.add_conditional_edges(
-        NodeName.CHECK_CONSTRAINTS.value,
+        NodeName.CHECK_CONSTRAINTS,
         route_constraints,
         {
             NodeName.PLAN_DOMAIN_LOGIC.value: NodeName.PLAN_DOMAIN_LOGIC.value,

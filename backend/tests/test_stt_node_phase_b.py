@@ -37,7 +37,6 @@ async def test_stt_node_prefers_user_text_over_audio(monkeypatch) -> None:
 
     monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
     monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
-    svc._client = None  # type: ignore[attr-defined]
 
     mock_transcribe = AsyncMock(return_value="transcribed via gemini")
     with patch("app.services.gemini_service.transcribe_audio", mock_transcribe):
@@ -55,7 +54,6 @@ async def test_stt_node_transcribes_via_gemini(monkeypatch) -> None:
 
     monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
     monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
-    svc._client = None  # type: ignore[attr-defined]
 
     mock_transcribe = AsyncMock(return_value="Збери кошик для офісу на 10 людей до 1500 грн")
     with patch("app.services.gemini_service.transcribe_audio", mock_transcribe):
@@ -80,7 +78,6 @@ async def test_stt_node_detects_wav_mime(monkeypatch) -> None:
 
     monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
     monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
-    svc._client = None  # type: ignore[attr-defined]
 
     mock_transcribe = AsyncMock(return_value="transcribed wav")
     with patch("app.services.gemini_service.transcribe_audio", mock_transcribe):
@@ -104,7 +101,6 @@ async def test_stt_node_mock_mode_returns_fallback(monkeypatch) -> None:
 
     monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", True)
     monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "")
-    svc._client = None  # type: ignore[attr-defined]
 
     from app.nodes.stt import stt_node
 

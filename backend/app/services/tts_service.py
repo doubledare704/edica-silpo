@@ -1,7 +1,6 @@
 import logging
 import uuid
 from pathlib import Path
-from typing import Any
 
 import httpx
 from google.genai import types
@@ -50,28 +49,18 @@ async def generate_audio_gemini(text: str) -> str | None:
         return None
 
 
-def _extract_audio_bytes(response: Any) -> bytes | None:
-    candidates = getattr(response, "candidates", None) or []
-    for candidate in candidates:
-        content = getattr(candidate, "content", None)
-        for part in getattr(content, "parts", None) or []:
-            inline = getattr(part, "inline_data", None)
-            data = getattr(inline, "data", None) if inline else None
+def _extract_audio_bytes(response: types.GenerateContentResponse) -> bytes | None:
+    for candidate in response.candidates or []:
+        content = candidate.content
+        for part in (content.parts or []) if content else []:
+            inline = part.inline_data
+            data = inline.data if inline else None
             if data:
                 if isinstance(data, str):
                     import base64
 
                     return base64.b64decode(data)
                 return bytes(data)
-
-    output_audio = getattr(response, "output_audio", None)
-    data = getattr(output_audio, "data", None) if output_audio else None
-    if isinstance(data, str):
-        import base64
-
-        return base64.b64decode(data)
-    if data:
-        return bytes(data)
     return None
 
 
