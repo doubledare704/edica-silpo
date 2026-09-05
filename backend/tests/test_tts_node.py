@@ -22,7 +22,7 @@ def test_format_ukrainian_speech_text() -> None:
 async def test_tts_node_mock_mode(monkeypatch) -> None:
     monkeypatch.setattr("app.nodes.tts.settings.TTS_MOCK_MODE", True)
     state: SilpoAgentState = {
-        "audio_bytes": None,
+        "audio_bytes": b"fake-voice-bytes",
         "user_text": "Пікнік",
         "intent": IntentEnum.PARTY,
         "budget": 2500.0,
@@ -43,6 +43,47 @@ async def test_tts_node_mock_mode(monkeypatch) -> None:
     result = await tts_node(state)
     assert result["audio_url"] == "/static/audio/mock_response.mp3"
     assert "2450" not in result["summary_message"]
+
+
+@pytest.mark.asyncio
+async def test_tts_node_skips_audio_for_text_request(monkeypatch) -> None:
+    monkeypatch.setattr("app.nodes.tts.settings.TTS_MOCK_MODE", True)
+    state: SilpoAgentState = {
+        "audio_bytes": None,
+        "user_text": "Пікнік",
+        "intent": IntentEnum.PARTY,
+        "budget": 2500.0,
+        "people_count": 6,
+        "dietary_restrictions": [],
+        "raw_item_requests": [],
+        "calculated_items": [],
+        "mcp_products": [],
+        "total_price": 2450.0,
+        "attempts": 1,
+        "max_attempts": 3,
+        "is_budget_exceeded": False,
+        "cart_url": "https://silpo.ua/cart/share/mock_123",
+        "summary_message": "Я зібрав кошик для пікніка на 6 осіб на суму 2450 гривень.",
+        "audio_url": None,
+        "messages": [],
+    }
+    result = await tts_node(state)
+    assert result["audio_url"] is None
+    assert len(result["summary_message"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_tts_node_skips_provider_for_text_request(monkeypatch) -> None:
+    monkeypatch.setattr("app.nodes.tts.settings.TTS_ENABLED", True)
+    monkeypatch.setattr("app.nodes.tts.settings.TTS_MOCK_MODE", False)
+    monkeypatch.setattr("app.nodes.tts.settings.TTS_PROVIDER", "gemini")
+    generate_audio = AsyncMock(return_value="/static/audio/gemini-result.mp3")
+    monkeypatch.setattr(tts_service, "generate_audio_gemini", generate_audio)
+
+    result = await tts_node({"summary_message": "Кошик на 2 особи", "audio_bytes": None})
+
+    assert result["audio_url"] is None
+    generate_audio.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -81,7 +122,7 @@ async def test_tts_node_routes_to_gemini_provider(monkeypatch) -> None:
     generate_audio = AsyncMock(return_value="/static/audio/gemini-result.mp3")
     monkeypatch.setattr(tts_service, "generate_audio_gemini", generate_audio)
 
-    result = await tts_node({"summary_message": "Кошик на 2 особи"})
+    result = await tts_node({"summary_message": "Кошик на 2 особи", "audio_bytes": b"voice-bytes"})
 
     assert result["audio_url"] == "/static/audio/gemini-result.mp3"
     assert "2" not in result["summary_message"]
@@ -95,7 +136,7 @@ async def test_tts_node_keeps_summary_when_provider_fails(monkeypatch) -> None:
     monkeypatch.setattr("app.nodes.tts.settings.TTS_PROVIDER", "gemini")
     monkeypatch.setattr(tts_service, "generate_audio_gemini", AsyncMock(side_effect=RuntimeError("provider down")))
 
-    result = await tts_node({"summary_message": "Кошик на 2 особи"})
+    result = await tts_node({"summary_message": "Кошик на 2 особи", "audio_bytes": b"voice-bytes"})
 
     assert result["audio_url"] is None
     assert result["summary_message"]

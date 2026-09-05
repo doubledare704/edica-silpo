@@ -66,7 +66,7 @@ TTS is optional and selected with `TTS_PROVIDER`:
 - `respeecher`: async HTTP provider using `RESPEECHER_API_URL`, API key, and voice ID.
 - `TTS_MOCK_MODE=true`: local mock audio URL.
 
-Audio failures never prevent `summary_message` from returning. Speech text is Ukrainian, plain text, and numbers are converted to words before provider calls.
+Audio failures never prevent `summary_message` from returning. Speech text is Ukrainian, plain text, and numbers are converted to words before provider calls. Voice in, voice out: `audio_url` is produced only when the request carried voice input; text requests return no audio.
 
 ## SSE Contract
 
