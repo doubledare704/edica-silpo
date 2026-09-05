@@ -53,4 +53,4 @@ npm run test:run --prefix frontend
 ## Phase 8: `create_shopping_cart` integration (silpo-py-mcp 0.2.0, per `.docs/SPEC_CREATE_SHOPPING_CART.md`)
 
 - [x] **Phase 8.1 (service-only):** `MCPProductService.ensure_cart()` + `resolve_fulfillment()` + unit tests; node/state untouched, zero behavior change.
-- [ ] **Phase 8.2 (wiring):** `delivery_address`/`fulfillment` state fields + `TECH_SPEC.md` update + `create_cart_node` wiring + regression test.
+- [x] **Phase 8.2 (wiring):** `delivery_address`/`fulfillment` state fields + `TECH_SPEC.md` update + `create_cart_node` wiring + regression test.

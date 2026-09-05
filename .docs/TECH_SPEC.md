@@ -21,6 +21,8 @@ The 3.5 Flash Lite model is intentional: it provides lower availability and rate
 - shopping: `calculated_items`, `mcp_products`, `total_price`
 - retry: `attempts`, `max_attempts`, `is_budget_exceeded`
 - output: `cart_url`, `summary_message`, `audio_url`
+- fulfillment: `delivery_address` (user-supplied address text), `fulfillment`
+  (resolved `create_shopping_cart` bundle, cached for retries; `None` when unresolvable)
 - `current_step` is retained only for compatibility with prior state payloads.
 
 All application code imports `SilpoAgentState` directly.
@@ -54,7 +56,7 @@ STT and intent parsing use `google-genai` through `client.aio`. Intent parsing r
 
 ### MCP and cart
 
-`MCP_MOCK_MODE=true` uses local/mock behavior. With `MCP_MOCK_MODE=false`, `SilpoClient.for_real_server()` handles the live catalog and OAuth flow. Product normalization preserves `productId`, `companyId`, `branchId`, price, private-label status, and quantity. Cart creation clears a dirty cart before updating products and returns a share URL; failures use a fallback URL without losing the summary.
+`MCP_MOCK_MODE=true` uses local/mock behavior. With `MCP_MOCK_MODE=false`, `SilpoClient.for_real_server()` handles the live catalog and OAuth flow. Product normalization preserves `productId`, `companyId`, `branchId`, price, private-label status, and quantity. Cart creation clears a dirty cart before updating products and returns a share URL; failures use a fallback URL without losing the summary. When `get_cart` reports no active cart, `create_cart` resolves fulfillment (saved address → geocode → delivery type → time slot) and creates one via `silpo_create_shopping_cart`; without a saved or supplied address it keeps the fallback URL.
 
 ### TTS
 

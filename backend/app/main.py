@@ -72,6 +72,8 @@ async def _sse_generator(
         "cart_url": None,
         "summary_message": "",
         "audio_url": None,
+        "delivery_address": None,
+        "fulfillment": None,
         "messages": [],
     }
 

@@ -26,6 +26,7 @@ class SilpoAgentState(TypedDict, total=False):
     cart_url: NotRequired[str | None]
     summary_message: NotRequired[str]
     audio_url: NotRequired[str | None]
+    delivery_address: NotRequired[str | None]
+    fulfillment: NotRequired[dict[str, Any] | None]
     current_step: NotRequired[str]
     messages: Annotated[list[BaseMessage], add_messages]
-

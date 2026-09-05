@@ -286,25 +286,30 @@ class MCPProductService:
             logger.debug("Fulfillment resolution failed: %s", exc)
             return None
 
+    async def _get_or_create_cart_id(self, client: SilpoClient, fulfillment: dict[str, Any] | None) -> tuple[str, Any]:
+        """Resolves the cart id and its existing items within one open client session."""
+        cart = await client.get_cart()
+        cart_id = self._product_value(cart, "id", "cartId", "cart_id", "shopping_cart_id", "shoppingCartId")
+        if cart_id:
+            logger.info("mcp ensure_cart path=existing cart_id=%s", cart_id)
+            return str(cart_id), self._product_value(cart, "items", "products", default=[])
+        if fulfillment is None:
+            raise ValueError("Silpo cart response is missing an id and no fulfillment details were provided")
+        created = await client.create_shopping_cart(**fulfillment)
+        new_id = self._product_value(created, "shopping_cart_id", "shoppingCartId", "id", "cartId", "cart_id")
+        if not new_id:
+            raise ValueError("Silpo cart creation response is missing an id")
+        logger.info("mcp ensure_cart path=created cart_id=%s", new_id)
+        return str(new_id), []
+
     async def ensure_cart(self, fulfillment: dict[str, Any] | None) -> str:
         """Returns the active cart id, creating one when the server reports exists=false."""
         client = SilpoClient.for_real_server()
         async with client:
-            cart = await client.get_cart()
-            cart_id = self._product_value(cart, "id", "cartId", "cart_id", "shopping_cart_id", "shoppingCartId")
-            if cart_id:
-                logger.info("mcp ensure_cart path=existing cart_id=%s", cart_id)
-                return str(cart_id)
-            if fulfillment is None:
-                raise ValueError("Silpo cart is missing and no fulfillment details were provided")
-            result = await client.create_shopping_cart(**fulfillment)
-            new_id = self._product_value(result, "shopping_cart_id", "shoppingCartId", "id", "cartId", "cart_id")
-            if not new_id:
-                raise ValueError("Silpo cart creation response is missing an id")
-            logger.info("mcp ensure_cart path=created cart_id=%s", new_id)
-            return str(new_id)
+            cart_id, _ = await self._get_or_create_cart_id(client, fulfillment)
+            return cart_id
 
-    async def create_cart(self, products: list[dict[str, Any]]) -> str:
+    async def create_cart(self, products: list[dict[str, Any]], fulfillment: dict[str, Any] | None = None) -> str:
         if not products:
             raise ValueError("Cannot create a cart without products")
 
@@ -324,12 +329,7 @@ class MCPProductService:
             items.append(cart_item)
 
         async with client:
-            cart = await client.get_cart()
-            cart_id = self._product_value(cart, "id", "cartId", "cart_id")
-            if not cart_id:
-                raise ValueError("Silpo cart response is missing an id")
-
-            existing_items = self._product_value(cart, "items", "products", default=[])
+            cart_id, existing_items = await self._get_or_create_cart_id(client, fulfillment)
             if existing_items:
                 await client.clear_cart(cart_id)
             result = await client.add_or_update_cart_products(cart_id, items=items)
