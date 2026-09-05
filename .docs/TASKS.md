@@ -23,7 +23,7 @@ START -> stt -> parse_intent -> plan_domain_logic -> mcp_fetch
 - Real-capable MCP product search with private-label selection and cart identifiers.
 - Real-capable cart mutation with dirty-cart clearing and fallback URLs.
 - Missing carts (`exists:false`) are created via `silpo_create_shopping_cart` with resolved fulfillment (saved address → geocode → delivery type → slot); unresolvable fulfillment keeps the fallback URL.
-- Gemini and Respeecher TTS routing with non-blocking failure behavior.
+- Real Respeecher WAV TTS for voice requests, immediate browser playback with a manual fallback, and non-blocking provider failures.
 - Explicit LangGraph topology, budget retry routing, `MemorySaver`, and truthful SSE.
 - Temporary ReAct/create-agent experiment removed from production and dependencies.
 - Backend and frontend regression coverage.
@@ -32,9 +32,9 @@ START -> stt -> parse_intent -> plan_domain_logic -> mcp_fetch
 
 Copy `.env.example` to `.env` and set `GEMINI_API_KEY` for real Gemini calls.
 
-- Development defaults: `MCP_MOCK_MODE=true`, `TTS_MOCK_MODE=true`, `TTS_ENABLED=false`.
+- Development defaults: `MCP_MOCK_MODE=true`, `TTS_MOCK_MODE=false`, `TTS_ENABLED=true`; voice replies use Respeecher when its key is configured.
 - Real catalog/cart: set `MCP_MOCK_MODE=false` and complete Silpo OAuth setup.
-- Real speech: set `TTS_ENABLED=true`, `TTS_MOCK_MODE=false`, and configure the selected provider.
+- Real speech: configure `RESPEECHER_API_KEY`, `RESPEECHER_VOICE_ID`, and the selected provider. Set `TTS_MOCK_MODE=true` only when a deterministic local fixture is needed.
 
 ## Validation
 
@@ -48,5 +48,5 @@ npm run test:run --prefix frontend
 
 ## Open Work
 
-- Run gated live Gemini/MCP/TTS smoke tests with real credentials.
+- Run gated live Gemini/MCP smoke tests with real credentials.
 - Keep `.docs/LANGRAPH_DISCOVERY.md` as historical reference only; it is not the active architecture contract.

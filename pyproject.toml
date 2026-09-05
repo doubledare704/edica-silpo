@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.141.1",
     "google-genai>=1.33.0",
+    "httpx>=0.28.1",
     "langchain-core>=1.6.1",
     "langgraph>=1.2.11",
     "pydantic>=2.13.5",
@@ -31,7 +32,6 @@ project-includes = [
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
     "pyrefly>=1.2.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",

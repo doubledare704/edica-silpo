@@ -36,8 +36,8 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    TTS_ENABLED: bool = False
-    TTS_MOCK_MODE: bool = True
+    TTS_ENABLED: bool = True
+    TTS_MOCK_MODE: bool = False
     RESPEECHER_API_KEY: str = ""
     RESPEECHER_VOICE_ID: str = "olesia-conversation"
     RESPEECHER_MODEL: Literal["ua-rt", "en-rt"] = "ua-rt"

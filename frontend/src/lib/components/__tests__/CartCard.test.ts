@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/svelte';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import CartCard from '../CartCard.svelte';
 
 const baseProps = {
@@ -11,6 +11,14 @@ const baseProps = {
 };
 
 describe('CartCard', () => {
+	beforeEach(() => {
+		vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
 	it('renders the summary text', () => {
 		render(CartCard, baseProps);
 		expect(screen.getByText('Я зібрав кошик для пікніка на шість осіб.')).toBeInTheDocument();
@@ -27,6 +35,14 @@ describe('CartCard', () => {
 		const audio = document.querySelector('audio');
 		expect(audio).toBeInTheDocument();
 		expect(audio).toHaveAttribute('src', '/static/audio/mock_response.wav');
+	});
+
+	it('starts playing generated audio as soon as the player is ready', async () => {
+		render(CartCard, baseProps);
+
+		const audio = document.querySelector('audio');
+		expect(audio).toBeInTheDocument();
+		await vi.waitFor(() => expect(HTMLMediaElement.prototype.play).toHaveBeenCalled());
 	});
 
 	it('does not render audio player when audioUrl is null', () => {
@@ -59,4 +75,3 @@ describe('CartCard', () => {
 		expect(screen.getByText('2.45k')).toBeInTheDocument();
 	});
 });
-

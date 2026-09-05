@@ -58,7 +58,10 @@ async def test_agent_stream_sse_endpoint() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_stream_sse_carries_audio_url_for_voice_request() -> None:
+async def test_agent_stream_sse_carries_audio_url_for_voice_request(monkeypatch) -> None:
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "TTS_MOCK_MODE", True)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         payload = {

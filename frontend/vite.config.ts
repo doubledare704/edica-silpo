@@ -1,6 +1,15 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, type UserConfig } from 'vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
+
+type VitestConfig = UserConfig & {
+	test: {
+		include: string[];
+		environment: string;
+		globals: boolean;
+		setupFiles: string[];
+	};
+};
 
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
@@ -13,4 +22,4 @@ export default defineConfig({
 		globals: true,
 		setupFiles: ['./src/test-setup.ts'],
 	},
-});
+} as VitestConfig);

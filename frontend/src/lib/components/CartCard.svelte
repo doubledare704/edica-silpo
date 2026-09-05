@@ -19,11 +19,28 @@
 	}
 
 	let { cartUrl, summary, audioUrl, totalPrice, isBudgetExceeded }: Props = $props();
+	let audioElement = $state<HTMLAudioElement | null>(null);
+	let autoplayBlocked = $state(false);
 
 	function formatShort(value: number): string {
 		if (value >= 1000) return `${(value / 1000).toFixed(2)}k`;
 		return value.toFixed(0);
 	}
+
+	async function playAudio() {
+		if (!audioElement) return;
+
+		try {
+			autoplayBlocked = false;
+			await audioElement.play();
+		} catch {
+			autoplayBlocked = true;
+		}
+	}
+
+	$effect(() => {
+		if (audioUrl && audioElement) void playAudio();
+	});
 </script>
 
 <section
@@ -99,7 +116,25 @@
 						Відповідь агента
 					</p>
 					<!-- svelte-ignore a11y_media_has_caption -->
-					<audio data-testid="tts-audio" controls src={audioUrl} class="w-full"></audio>
+					<audio
+						bind:this={audioElement}
+						data-testid="tts-audio"
+						controls
+						autoplay
+						preload="auto"
+						src={audioUrl}
+						oncanplay={playAudio}
+						class="w-full"
+					></audio>
+					{#if autoplayBlocked}
+						<button
+							type="button"
+							onclick={playAudio}
+							class="mt-2 text-sm font-semibold text-app-primary hover:underline"
+						>
+							▶ Відтворити відповідь
+						</button>
+					{/if}
 				</div>
 			</div>
 		{/if}

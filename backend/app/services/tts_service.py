@@ -75,7 +75,7 @@ async def generate_audio_respeecher(text: str) -> str | None:
         return None
 
     endpoint = f"https://api.respeecher.com/v1/public/tts/{settings.RESPEECHER_MODEL}/tts/bytes"
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(
             endpoint,
             headers={"X-API-Key": settings.RESPEECHER_API_KEY, "Content-Type": "application/json"},
@@ -91,6 +91,9 @@ async def generate_audio_respeecher(text: str) -> str | None:
             logger.warning("Respeecher returned non-audio response (%s)", content_type)
             return None
         response_content = response.content
+        if not response_content.startswith(b"RIFF"):
+            logger.warning("Respeecher returned an invalid WAV payload")
+            return None
 
     return _save_audio_bytes(response_content, suffix=".wav")
 
