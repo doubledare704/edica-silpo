@@ -1,4 +1,5 @@
 import logging
+import math
 from typing import Any
 
 from silpo_py_mcp import SilpoClient
@@ -206,6 +207,122 @@ class MCPProductService:
         if not start or not end or not available:
             return None
         return {"start": str(start), "end": str(end)}
+
+    FETCH_BRANCHES_LIMIT = 500
+
+    @staticmethod
+    def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+        radius_km = 6371.0
+        dlat = math.radians(lat2 - lat1)
+        dlng = math.radians(lng2 - lng1)
+        a = (
+            math.sin(dlat / 2) ** 2
+            + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2
+        )
+        return radius_km * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    @staticmethod
+    def _branch_distance_km(branch: Any, lat: float, lng: float) -> float:
+        coords = MCPProductService._extract_coords(branch)
+        if coords is None:
+            return math.inf
+        return MCPProductService._haversine_km(lat, lng, *coords)
+
+    @staticmethod
+    def _branch_display_address(branch: Any) -> str:
+        parts = [
+            part
+            for part in (
+                MCPProductService._product_value(branch, "city"),
+                MCPProductService._product_value(branch, "address"),
+            )
+            if part
+        ]
+        if parts:
+            return ", ".join(str(part) for part in parts)
+        return str(
+            MCPProductService._product_value(
+                branch, "name", default=MCPProductService._product_value(branch, "branch_id", "branchId", default="")
+            )
+        )
+
+    async def find_nearest_branches(self, address_text: str, limit: int = 10) -> dict[str, Any]:
+        """Geocodes an address, lists Silpo branches, returns the nearest ones first."""
+        client = SilpoClient.for_mock() if settings.MCP_MOCK_MODE else SilpoClient.for_real_server()
+        async with client:
+            try:
+                geocoded = await client.find_address(address_text)
+            except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+                raise ValueError(f"Could not geocode address '{address_text}': {exc}") from exc
+            coords = self._extract_coords(geocoded)
+            if coords is None:
+                raise ValueError(f"Could not geocode address '{address_text}'")
+            lat, lng = coords
+
+            try:
+                branches = await client.list_branches(limit=self.FETCH_BRANCHES_LIMIT)
+            except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+                raise ValueError(f"Could not list Silpo branches: {exc}") from exc
+
+            ranked = sorted(
+                (
+                    branch
+                    for branch in branches
+                    if self._product_value(branch, "is_open", "open", default=None) is not False
+                ),
+                key=lambda branch: self._branch_distance_km(branch, lat, lng),
+            )
+            stores: list[dict[str, Any]] = []
+            for branch in ranked:
+                distance = self._branch_distance_km(branch, lat, lng)
+                if distance == math.inf:
+                    continue
+                branch_coords = self._extract_coords(branch)
+                stores.append(
+                    {
+                        "branch_id": str(self._product_value(branch, "branch_id", "branchId", default="")),
+                        "name": str(self._product_value(branch, "name", default="Сільпо")),
+                        "city": self._product_value(branch, "city"),
+                        "address": self._product_value(branch, "address"),
+                        "display_address": self._branch_display_address(branch),
+                        "distance_km": round(distance, 1),
+                        "has_pickup": bool(self._product_value(branch, "has_pickup", "hasPickup", default=False)),
+                        "latitude": branch_coords[0] if branch_coords is not None else None,
+                        "longitude": branch_coords[1] if branch_coords is not None else None,
+                    }
+                )
+                if len(stores) >= max(limit, 0):
+                    break
+            return {
+                "query": address_text,
+                "resolved_address": str(self._product_value(geocoded, "text", "address", default=address_text)),
+                "latitude": lat,
+                "longitude": lng,
+                "stores": stores,
+            }
+
+    async def list_saved_addresses(self) -> list[dict[str, Any]]:
+        """Returns the user's saved Silpo delivery addresses (empty when unavailable)."""
+        client = SilpoClient.for_mock() if settings.MCP_MOCK_MODE else SilpoClient.for_real_server()
+        try:
+            async with client:
+                saved = await client.get_delivery_addresses() or []
+        except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+            logger.debug("Could not load saved delivery addresses: %s", exc)
+            return []
+        addresses: list[dict[str, Any]] = []
+        for entry in saved:
+            text = self._product_value(entry, "text", "address", default=None)
+            if text is None:
+                continue
+            addresses.append(
+                {
+                    "address_id": str(self._product_value(entry, "address_id", "addressId", default="")),
+                    "label": self._product_value(entry, "label"),
+                    "text": str(text),
+                }
+            )
+        return addresses
 
     async def resolve_fulfillment(self, delivery_address: str | None) -> dict[str, Any] | None:
         """Resolves cart-creation details: saved address → geocode → delivery type → slot."""

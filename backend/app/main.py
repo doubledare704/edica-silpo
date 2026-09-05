@@ -4,8 +4,9 @@ import logging
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterable
 from pathlib import Path
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from fastapi.staticfiles import StaticFiles
@@ -15,6 +16,7 @@ from .config import settings
 from .enums import IntentEnum, NodeName, SSEEvent
 from .graph import create_silpo_agent_graph
 from .logging_config import configure_logging
+from .services.mcp_service import mcp_product_service
 from .state import SilpoAgentState
 
 configure_logging(settings.LOG_LEVEL)
@@ -45,6 +47,53 @@ class AgentStreamRequest(BaseModel):
     user_text: str | None = None
     thread_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     audio_base64: str | None = None
+
+
+class StoreItem(BaseModel):
+    branch_id: str
+    name: str
+    city: str | None = None
+    address: str | None = None
+    display_address: str
+    distance_km: float
+    has_pickup: bool = False
+    latitude: float | None = None
+    longitude: float | None = None
+
+
+class NearestStoresResponse(BaseModel):
+    query: str
+    resolved_address: str
+    latitude: float
+    longitude: float
+    stores: list[StoreItem]
+
+
+class SavedAddressItem(BaseModel):
+    address_id: str
+    label: str | None = None
+    text: str
+
+
+@app.get("/api/stores/saved-addresses", response_model=list[SavedAddressItem])
+async def saved_addresses_endpoint() -> list[dict[str, Any]]:
+    """Returns the user's saved Silpo delivery addresses for the store picker."""
+    return await mcp_product_service.list_saved_addresses()
+
+
+@app.get("/api/stores/nearest", response_model=NearestStoresResponse)
+async def nearest_stores_endpoint(
+    address: str = Query(min_length=1),
+    limit: int = Query(default=10, ge=1, le=10),
+) -> dict[str, object]:
+    """Returns the nearest Silpo branches to a user-supplied address (max 10)."""
+    text = address.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="Address must not be blank")
+    try:
+        return await mcp_product_service.find_nearest_branches(text, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 async def _sse_generator(
