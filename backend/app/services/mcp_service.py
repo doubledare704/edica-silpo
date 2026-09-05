@@ -170,6 +170,140 @@ class MCPProductService:
 
         return products
 
+    @staticmethod
+    def _extract_coords(source: Any) -> tuple[float, float] | None:
+        coords = MCPProductService._product_value(source, "coordinates", "coords", "geo", "location")
+        if coords is None:
+            coords = source
+        lat = MCPProductService._product_value(coords, "lat", "latitude")
+        lng = MCPProductService._product_value(coords, "lng", "longitude", "lon")
+        if lat is None or lng is None:
+            return None
+        try:
+            return float(lat), float(lng)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _normalize_delivery_option(entry: Any) -> dict[str, Any] | None:
+        raw_type = MCPProductService._product_value(entry, "type", "delivery_type", "deliveryType")
+        dtype = getattr(raw_type, "value", raw_type)
+        branch_id = MCPProductService._product_value(entry, "branch_id", "branchId")
+        min_order = MCPProductService._product_value(entry, "min_order", "minOrder", default=None)
+        try:
+            min_order_value = float(min_order) if min_order is not None else float("inf")
+        except (TypeError, ValueError):
+            min_order_value = float("inf")
+        if dtype is None or branch_id is None:
+            return None
+        return {"type": str(dtype), "branch_id": str(branch_id), "min_order": min_order_value}
+
+    @staticmethod
+    def _normalize_slot(entry: Any) -> dict[str, str] | None:
+        start = MCPProductService._product_value(entry, "startsAt", "start", "starts_at")
+        end = MCPProductService._product_value(entry, "endsAt", "end", "ends_at")
+        available = MCPProductService._product_value(entry, "isAvailable", "available", "is_available", default=True)
+        if not start or not end or not available:
+            return None
+        return {"start": str(start), "end": str(end)}
+
+    async def resolve_fulfillment(self, delivery_address: str | None) -> dict[str, Any] | None:
+        """Resolves cart-creation details: saved address → geocode → delivery type → slot."""
+        client = SilpoClient.for_real_server()
+        try:
+            async with client:
+                saved = await client.get_delivery_addresses() or []
+                first_saved = saved[0] if saved else None
+                text = self._product_value(first_saved, "text", "address") if first_saved is not None else None
+                if text is None:
+                    text = delivery_address
+                if text is None:
+                    logger.debug("No saved or supplied delivery address, fulfillment unresolvable")
+                    return None
+
+                coords = self._extract_coords(first_saved) if first_saved is not None else None
+                geocoded: Any = None
+                if coords is None:
+                    geocoded = await client.find_address(text)
+                    coords = self._extract_coords(geocoded)
+                if coords is None:
+                    logger.debug("Could not geocode delivery address '%s'", text)
+                    return None
+                lat, lng = coords
+
+                options = [
+                    option
+                    for option in (
+                        self._normalize_delivery_option(entry)
+                        for entry in await client.get_available_delivery_types(lat=lat, lng=lng)
+                    )
+                    if option is not None
+                ]
+                if not options:
+                    logger.debug("No delivery types available for (%s, %s)", lat, lng)
+                    return None
+                options.sort(
+                    key=lambda option: (0 if option["type"].lower() == "selfpickup" else 1, option["min_order"])
+                )
+                chosen = options[0]
+
+                raw_slots = await client.call_tool(
+                    "silpo_get_time_slots",
+                    {
+                        "branchId": chosen["branch_id"],
+                        "deliveryType": chosen["type"],
+                        "deliveryTypes": [chosen["type"]],
+                    },
+                )
+                slots = [
+                    slot for slot in (self._normalize_slot(entry) for entry in raw_slots or []) if slot is not None
+                ]
+                if not slots:
+                    logger.debug("No available time slots for branch %s", chosen["branch_id"])
+                    return None
+
+                bundle = {
+                    "address_type": "delivery",
+                    "latitude": lat,
+                    "longitude": lng,
+                    "delivery_type": chosen["type"],
+                    "branch_id": chosen["branch_id"],
+                    "timeslot_start": slots[0]["start"],
+                    "timeslot_end": slots[0]["end"],
+                    "city": self._product_value(geocoded, "city"),
+                    "street": self._product_value(geocoded, "street"),
+                    "house": self._product_value(geocoded, "house_number", "house"),
+                    "district": self._product_value(geocoded, "district"),
+                }
+                logger.info(
+                    "mcp fulfillment resolved type=%s branch=%s slot=%s",
+                    chosen["type"],
+                    chosen["branch_id"],
+                    slots[0]["start"],
+                )
+                return bundle
+        except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+            logger.debug("Fulfillment resolution failed: %s", exc)
+            return None
+
+    async def ensure_cart(self, fulfillment: dict[str, Any] | None) -> str:
+        """Returns the active cart id, creating one when the server reports exists=false."""
+        client = SilpoClient.for_real_server()
+        async with client:
+            cart = await client.get_cart()
+            cart_id = self._product_value(cart, "id", "cartId", "cart_id", "shopping_cart_id", "shoppingCartId")
+            if cart_id:
+                logger.info("mcp ensure_cart path=existing cart_id=%s", cart_id)
+                return str(cart_id)
+            if fulfillment is None:
+                raise ValueError("Silpo cart is missing and no fulfillment details were provided")
+            result = await client.create_shopping_cart(**fulfillment)
+            new_id = self._product_value(result, "shopping_cart_id", "shoppingCartId", "id", "cartId", "cart_id")
+            if not new_id:
+                raise ValueError("Silpo cart creation response is missing an id")
+            logger.info("mcp ensure_cart path=created cart_id=%s", new_id)
+            return str(new_id)
+
     async def create_cart(self, products: list[dict[str, Any]]) -> str:
         if not products:
             raise ValueError("Cannot create a cart without products")
