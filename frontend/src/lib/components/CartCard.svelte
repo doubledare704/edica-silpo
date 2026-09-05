@@ -1,11 +1,11 @@
 <script lang="ts">
 	/**
-	 * CartCard — displays the final agent result.
+	 * CartCard — finished-state basket hero (Stitch: "Поточний кошик").
 	 *
 	 * Props:
 	 *   cartUrl      — Silpo cart share URL (or null if unavailable)
 	 *   summary      — Ukrainian text summary from the agent
-	 *   audioUrl     — path to Respeecher TTS audio (or null)
+	 *   audioUrl     — path to TTS audio of the agent reply (or null)
 	 *   totalPrice   — total cart price in UAH
 	 *   isBudgetExceeded — whether the cart exceeded the requested budget
 	 */
@@ -19,48 +19,101 @@
 	}
 
 	let { cartUrl, summary, audioUrl, totalPrice, isBudgetExceeded }: Props = $props();
+
+	function formatShort(value: number): string {
+		if (value >= 1000) return `${(value / 1000).toFixed(2)}k`;
+		return value.toFixed(0);
+	}
 </script>
 
-<div
-	class="w-full mx-auto rounded-[24px] border border-app-border bg-app-card shadow-bento p-6 space-y-4"
+<section
+	aria-label="Поточний кошик"
+	class="w-full mx-auto bg-app-card rounded-[24px] p-6 border border-app-border shadow-bento flex flex-col"
 >
-	<p class="text-on-surface text-base leading-relaxed">{summary}</p>
-
-	{#if isBudgetExceeded}
-		<div
-			data-testid="budget-warning"
-			class="flex items-center gap-2 rounded-full bg-amber-50 border border-amber-200 px-4 py-2 text-sm text-amber-800"
-		>
-			⚠️ Бюджет перевищено — кошик оптимізовано за максимально можливою точністю.
+	<div>
+		<h3 class="text-[24px] leading-8 font-semibold text-on-surface mb-6">Поточний кошик</h3>
+		<div class="flex items-center gap-4 mb-6">
+			<div class="relative w-24 h-24 shrink-0">
+				<svg class="w-full h-full transform -rotate-90" viewBox="0 0 36 36" aria-hidden="true">
+					<path
+						class="text-surface-variant stroke-current"
+						d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+						fill="none"
+						stroke-width="3"
+					></path>
+					<path
+						class="text-app-primary stroke-current"
+						d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+						fill="none"
+						stroke-dasharray="100, 100"
+						stroke-linecap="round"
+						stroke-width="3"
+					></path>
+				</svg>
+				<div class="absolute inset-0 flex flex-col items-center justify-center">
+					<span class="text-xs text-on-surface-variant font-medium leading-tight">грн</span>
+					<span class="text-lg font-bold text-on-surface leading-tight">{formatShort(totalPrice)}</span>
+				</div>
+			</div>
+			<div>
+				<p class="text-[16px] leading-6 text-on-surface-variant">Використання бюджету</p>
+				<p class="text-[24px] leading-8 text-on-surface font-bold">
+					<span data-testid="total-price">{totalPrice.toFixed(2)}</span>
+					<span class="text-on-surface-variant font-normal text-[18px]">грн</span>
+				</p>
+				{#if isBudgetExceeded}
+					<span
+						data-testid="budget-warning"
+						class="text-xs mt-1 font-medium bg-amber-50 border border-amber-200 text-amber-800 inline-flex items-center gap-1 px-2 py-0.5 rounded-full"
+						>⚠️ Бюджет перевищено</span
+					>
+				{:else}
+					<span
+						data-testid="budget-ok"
+						class="text-xs mt-1 font-medium bg-green-100 border border-green-200 text-green-700 inline-flex items-center gap-1 px-2 py-0.5 rounded-full"
+					>
+						<span class="material-symbols-outlined text-[14px]" aria-hidden="true"
+							>check_circle</span
+						>
+						В межах бюджету
+					</span>
+				{/if}
+			</div>
 		</div>
-	{/if}
 
-	<div class="flex items-center justify-between text-sm text-on-surface-variant">
-		<span>Загальна сума:</span>
-		<span data-testid="total-price" class="font-semibold text-on-surface">
-			{totalPrice.toFixed(2)} грн
-		</span>
+		<p class="text-on-surface text-base leading-relaxed mb-6">{summary}</p>
+
+		{#if audioUrl}
+			<div
+				class="bg-surface-container-lowest border border-app-border rounded-xl p-4 mb-6 flex items-center gap-3"
+			>
+				<div
+					class="w-8 h-8 rounded-full bg-tertiary-container text-on-tertiary flex items-center justify-center shrink-0"
+				>
+					<span class="material-symbols-outlined text-sm" aria-hidden="true">graphic_eq</span>
+				</div>
+				<div class="flex-1 min-w-0">
+					<p
+						class="text-xs text-on-surface-variant font-semibold uppercase tracking-wide mb-1"
+					>
+						Відповідь агента
+					</p>
+					<!-- svelte-ignore a11y_media_has_caption -->
+					<audio data-testid="tts-audio" controls src={audioUrl} class="w-full"></audio>
+				</div>
+			</div>
+		{/if}
 	</div>
-
-	{#if audioUrl}
-		<div class="space-y-1">
-			<p class="text-xs text-on-surface-variant font-semibold uppercase tracking-wide">
-				Відповідь агента
-			</p>
-			<!-- svelte-ignore a11y_media_has_caption -->
-			<audio controls src={audioUrl} class="w-full rounded-full"></audio>
-		</div>
-	{/if}
 
 	{#if cartUrl}
 		<a
 			href={cartUrl}
 			target="_blank"
 			rel="noopener noreferrer"
-			class="flex items-center justify-center gap-2 w-full rounded-full bg-app-primary px-4 py-3 text-sm font-semibold text-white hover:bg-app-primary-dark active:scale-[0.99] transition-all"
+			class="w-full bg-app-primary hover:bg-app-primary-dark text-white font-semibold text-base py-3.5 px-4 rounded-xl flex justify-center items-center gap-2 transition-colors active:scale-[0.98] shadow-md shadow-app-primary/20"
 		>
-			<span class="material-symbols-outlined text-[20px]" aria-hidden="true">shopping_bag</span>
-			Відкрити кошик у Silpo
+			<span>Перейти до оформлення</span>
+			<span class="material-symbols-outlined text-[20px]" aria-hidden="true">arrow_forward</span>
 		</a>
 	{/if}
-</div>
+</section>

@@ -150,6 +150,10 @@
 			runStream(request);
 		}
 	});
+
+	let sessionTag = $derived(
+		request ? request.threadId.replaceAll('-', '').slice(0, 4).toUpperCase() : '',
+	);
 </script>
 
 <div
@@ -165,11 +169,21 @@
 			Спробуйте запитати... Введіть запит, щоб розпочати…
 		</p>
 	{:else}
+		<div class="mb-4 flex items-center justify-between gap-2">
+			<h3 class="text-[14px] leading-5 font-semibold text-on-surface-variant flex items-center gap-2">
+				<span class="material-symbols-outlined text-sm" aria-hidden="true">memory</span>
+				Хід думок Edica
+			</h3>
+			{#if sessionTag}
+				<span
+					class="hidden sm:inline-block text-xs text-on-surface-variant bg-surface-container px-2 py-0.5 rounded-full"
+					>Сесія #{sessionTag}</span
+				>
+			{/if}
+		</div>
+
 		{#if streaming}
-			<div
-				data-testid="timeline-streaming"
-				class="flex items-center gap-2 mb-4 text-primary"
-			>
+			<div data-testid="timeline-streaming" class="flex items-center gap-2 mb-4 text-primary">
 				<span class="inline-block w-3 h-3 rounded-full bg-app-primary animate-pulse"></span>
 				<span
 					class="text-sm font-semibold bg-gradient-to-r from-app-primary to-app-secondary bg-clip-text text-transparent"
@@ -182,18 +196,31 @@
 			<p class="text-error text-sm mb-4">⚠️ {error}</p>
 		{/if}
 
-		<ol class="relative border-l border-app-border ml-3 space-y-3">
-			{#each events as ev (ev.id)}
-				<li class="ml-4">
-					<span
-						class={[
-							'absolute -left-1.5 mt-1 w-3 h-3 rounded-full border-2 border-white',
-							ev.type === 'node_complete' ? 'bg-app-primary' : 'bg-app-secondary',
-						].join(' ')}
-					></span>
-					<p class="text-sm text-on-surface">{ev.label}</p>
-				</li>
+		<div class="flex flex-col gap-4">
+			{#each events as ev, index (ev.id)}
+				{@const active = streaming && index === events.length - 1}
+				{#if active}
+					<div
+						class="flex gap-3 items-start bg-primary-fixed/20 p-3 -mx-3 rounded-xl border border-primary-fixed"
+					>
+						<div
+							class="w-6 h-6 rounded-full bg-app-primary text-white flex items-center justify-center mt-0.5 animate-pulse shrink-0"
+						>
+							<span class="w-2 h-2 bg-white rounded-full"></span>
+						</div>
+						<p class="text-[16px] leading-6 text-on-surface pt-0.5 font-medium">{ev.label}</p>
+					</div>
+				{:else}
+					<div class="flex gap-3 items-start opacity-60">
+						<div
+							class="w-6 h-6 rounded-full bg-surface-container flex items-center justify-center mt-0.5 shrink-0"
+						>
+							<span class="material-symbols-outlined text-[14px]" aria-hidden="true">check</span>
+						</div>
+						<p class="text-[16px] leading-6 text-on-surface flex-1 pt-0.5">{ev.label}</p>
+					</div>
+				{/if}
 			{/each}
-		</ol>
+		</div>
 	{/if}
 </div>

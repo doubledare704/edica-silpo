@@ -16,9 +16,9 @@ describe('CartCard', () => {
 		expect(screen.getByText('Я зібрав кошик для пікніка на шість осіб.')).toBeInTheDocument();
 	});
 
-	it('renders a cart link with correct href', () => {
+	it('renders a checkout link with correct href', () => {
 		render(CartCard, baseProps);
-		const link = screen.getByRole('link', { name: /кошик|cart|відкрити/i });
+		const link = screen.getByRole('link', { name: /оформлення/i });
 		expect(link).toHaveAttribute('href', 'https://silpo.ua/cart/share/mock_123');
 	});
 
@@ -47,6 +47,16 @@ describe('CartCard', () => {
 	it('does not show budget warning when budget is within limits', () => {
 		render(CartCard, baseProps);
 		expect(screen.queryByTestId('budget-warning')).not.toBeInTheDocument();
+	});
+
+	it('shows within-budget badge when budget is within limits', () => {
+		render(CartCard, baseProps);
+		expect(screen.getByTestId('budget-ok')).toHaveTextContent('В межах бюджету');
+	});
+
+	it('formats large totals in the ring label', () => {
+		render(CartCard, baseProps);
+		expect(screen.getByText('2.45k')).toBeInTheDocument();
 	});
 });
 
