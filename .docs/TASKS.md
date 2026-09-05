@@ -22,6 +22,7 @@ START -> stt -> parse_intent -> plan_domain_logic -> mcp_fetch
 - Async Gemini STT and structured multimodal intent parsing with fallback.
 - Real-capable MCP product search with private-label selection and cart identifiers.
 - Real-capable cart mutation with dirty-cart clearing and fallback URLs.
+- Missing carts (`exists:false`) are created via `silpo_create_shopping_cart` with resolved fulfillment (saved address → geocode → delivery type → slot); unresolvable fulfillment keeps the fallback URL.
 - Gemini and Respeecher TTS routing with non-blocking failure behavior.
 - Explicit LangGraph topology, budget retry routing, `MemorySaver`, and truthful SSE.
 - Temporary ReAct/create-agent experiment removed from production and dependencies.
@@ -49,8 +50,3 @@ npm run test:run --prefix frontend
 
 - Run gated live Gemini/MCP/TTS smoke tests with real credentials.
 - Keep `.docs/LANGRAPH_DISCOVERY.md` as historical reference only; it is not the active architecture contract.
-
-## Phase 8: `create_shopping_cart` integration (silpo-py-mcp 0.2.0, per `.docs/SPEC_CREATE_SHOPPING_CART.md`)
-
-- [x] **Phase 8.1 (service-only):** `MCPProductService.ensure_cart()` + `resolve_fulfillment()` + unit tests; node/state untouched, zero behavior change.
-- [x] **Phase 8.2 (wiring):** `delivery_address`/`fulfillment` state fields + `TECH_SPEC.md` update + `create_cart_node` wiring + regression test.
