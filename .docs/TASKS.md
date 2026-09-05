@@ -1,63 +1,52 @@
-# Spec-Driven Implementation Checklist
+# Project Status
 
-## Phase 1: Core environment and shared types
+## Current Architecture
 
-- [x] Create a Python 3.12+ project structure using `uv`
-- [x] Implement `app/enums.py` with `IntentEnum` and `NodeName`
-- [x] Implement `app/state.py` with `AgentState`
-- [x] Implement `app/config.py` with `Settings` including `TTS_ENABLED` and `TTS_MOCK_MODE`
+```text
+START -> stt -> parse_intent -> plan_domain_logic -> mcp_fetch
+       -> check_constraints -- budget retry --> plan_domain_logic
+       -> create_cart -> tts -> END
+```
 
-## Phase 2: LangGraph nodes (TDD and mocking)
+- State: `SilpoAgentState` TypedDict with the `add_messages` reducer.
+- Gemini: `gemini-3.5-flash-lite`, chosen for availability and lower rate-limit pressure.
+- Gemini calls: native async `google-genai` through `client.aio`.
+- MCP/cart: mock by default; real OAuth-backed calls when `MCP_MOCK_MODE=false`.
+- TTS: optional; selected with `TTS_PROVIDER` (`gemini` or `respeecher`).
+- Recovery: deterministic fallbacks preserve a usable response when integrations fail.
+- SSE: reports actual graph nodes and preserves existing event names.
 
-- [x] TDD and implement `stt_node` for Whisper or audio parsing mock
-- [x] TDD and implement `parse_intent_node` for LLM entity extraction
-- [x] TDD and implement `plan_domain_logic_node` for party and budget math logic
-- [x] TDD and implement `mcp_fetch_node` using `silpo-py-mcp`
-- [x] TDD and implement `check_constraints_node` for constraint satisfaction loop
-- [x] TDD and implement `create_cart_node` for cart link generation
-- [x] TDD and implement `tts_node` with Respeecher API and mock fallback
+## Completed
 
-## Phase 3: Graph assembly and FastAPI SSE endpoint
+- Core project, domain planners, and intents: `party`, `budget`, `office`, `gourmet`.
+- Async Gemini STT and structured multimodal intent parsing with fallback.
+- Real-capable MCP product search with private-label selection and cart identifiers.
+- Real-capable cart mutation with dirty-cart clearing and fallback URLs.
+- Gemini and Respeecher TTS routing with non-blocking failure behavior.
+- Explicit LangGraph topology, budget retry routing, `MemorySaver`, and truthful SSE.
+- Temporary ReAct/create-agent experiment removed from production and dependencies.
+- Backend and frontend regression coverage.
 
-- [x] Assemble `create_silpo_agent_graph()` with `MemorySaver` checkpointer
-- [x] Implement `POST /api/agent/stream` using native FastAPI `StreamingResponse`
+## Configuration
 
-## Phase 4: SvelteKit frontend
+Copy `.env.example` to `.env` and set `GEMINI_API_KEY` for real Gemini calls.
 
-- [x] Create a SvelteKit (Svelte 5) project with Tailwind CSS
-- [x] Implement `VoiceInput.svelte` for push-to-talk voice input
-- [x] Implement `AgentTimeline.svelte` for the SSE `EventSource` listener
-- [x] Implement `CartCard.svelte` with an audio player for Respeecher TTS output
+- Development defaults: `MCP_MOCK_MODE=true`, `TTS_MOCK_MODE=true`, `TTS_ENABLED=false`.
+- Real catalog/cart: set `MCP_MOCK_MODE=false` and complete Silpo OAuth setup.
+- Real speech: set `TTS_ENABLED=true`, `TTS_MOCK_MODE=false`, and configure the selected provider.
 
-## Phase 5: Post-MVP roadmap (Phase 2 intents)
+## Validation
 
-- [x] Implement `plan_office_logic` for the `OFFICE` intent
-- [x] Implement `plan_gourmet_logic` for the `GOURMET` intent
+```bash
+uv run ruff format --check backend/app backend/tests
+uv run ruff check .
+uv run pyrefly check
+uv run pytest backend/tests
+npm run test:run --prefix frontend
+```
 
-## Phase 6: Real Implementation for Every LangGraph Node + Gemini Multimodal Intent (per `.docs/PLAN_GEMINI_REAL_IMPLEMENTATION.md` 2026-09-02)
+## Open Work
 
-> Goal: Replace all mocked nodes `backend/app/nodes/*.py` with production implementations. Preserve topology `TECH_SPEC.md:58-67` and `AgentState` `TECH_SPEC.md:26-54` — no new nodes/state fields per `AGENTS.md:1`. Single model `gemini-3.7-flash` (STT+intent), TTS `gemini-3.1-flash-tts-preview` xor Respeecher via `TTS_PROVIDER` toggle. Decisions locked per Plan §10.
-
-- [x] **Phase A. Foundations** — Add `google-genai>=2.3.0` to `pyproject.toml:7-15`; extend `backend/app/config.py:1-19` with `GEMINI_API_KEY`, `GEMINI_MODEL="gemini-3.7-flash"`, `GEMINI_TTS_MODEL="gemini-3.1-flash-tts-preview"`, `TTS_PROVIDER: Literal["respeecher","gemini"]="respeecher"`, `GEMINI_MOCK_MODE: bool=False`; add `.env.example` at repo root; scaffold `backend/app/services/gemini_service.py` (lazy `genai.Client`, `transcribe_audio(audio_bytes, mime="audio/webm")`, `parse_intent_multimodal(text, audio_bytes) -> ParsedIntentSchema` with `response_mime_type="application/json"` + `response_schema`, fallback to `_extract_intent_fallback`); new `backend/app/services/tts_service.py` stub — Files: `pyproject.toml`, `app/config.py`, `services/gemini_service.py` — Tests: unit mock + `uv run pyrefly check`
-- [x] **Phase B. STT** — Make `nodes/stt.py:6-15` `async`; keep `WebM` (detect `audio/webm` vs `audio/wav` from header, `main.py:108-111` base64 already); priority: `user_text` wins else `audio_bytes -> gemini_service.transcribe_audio` else `None`; `GEMINI_MOCK_MODE` or missing key returns hardcoded fallback `"Збери кошик для пікніка..."` to keep `tests/test_stt_node.py` green — Tests: `tests/test_stt_node.py` async mock `patch("app.services.gemini_service.client.models.generate_content")` + manual curl base64 WebM
-- [x] **Phase C. Parse Intent** — Make `nodes/parse_intent.py:1-93` `async`; multimodal `contents` (audio `audio/webm` + Ukrainian prompt) if `state["audio_bytes"]` else text-only; Ukrainian prompt + `response_schema=ParsedIntentSchema` (enum English, entities Ukrainian); replace static map `parse_intent.py:55-63` with LLM output; keep hard fallback for CI; handle `OFFICE`/`GOURMET` via LLM — Tests: `tests/test_parse_intent_node.py:6-32` with mocked Gemini JSON + multimodal audio path (`CONTRACTS.md:5-22` fixture)
-- [ ] **Phase D. MCP Real** — Enable real OAuth `MCP_MOCK_MODE=False` via `SilpoClient.for_real_server()` (`StreamableHttpTransport("https://mcp.silpo.ua/mcp")` + `build_oauth` + `build_encrypted_token_storage`); enhance `services/mcp_service.py:69-131` `fetch_products` to respect `prefer_private_label` (`on_sale=True` / `is_private_label` filter, `limit=5`, cheapest private-label); store `productId`, `companyId`, `branchId` from `SilpoProduct`; hybrid fallback to `STATIC_MCP_FALLBACK_CATALOG` on `SilpoAuthError`/`SilpoConnectionError` — Tests: `tests/test_mcp_fetch_node.py:8-50` still pass + gated `SILPO_TEST_REAL=1` real integration
-- [ ] **Phase E. Cart Real** — Make `nodes/create_cart.py:8-21` `async`; if `MCP_MOCK_MODE` keep `mock_{uuid[:8]}`; else `cart = await client.get_cart(); if dirty: await client.clear_cart(cart.id); result = await client.add_or_update_cart_products(cart.id, items=[{productId, companyId, branchId, quantity}])`; `cart_url = f"https://silpo.ua/cart/{cart.id}"` or `result.share_url`; fallback to mock URL on error; summary via `planner.format_summary` unchanged — Tests: `tests/test_create_cart_node.py`
-- [ ] **Phase F. TTS Dual** — Implement `services/tts_service.py` provider toggle `TTS_PROVIDER`; keep `utils/speech.py:109-118` `format_ukrainian_speech_text` pre-processor (numbers -> words, strip markdown) per `TECH_SPEC.md:72-79`; Branch A `respeecher` (`TTS_PROVIDER=="respeecher"` + `TTS_ENABLED` + not `TTS_MOCK_MODE` -> Respeecher API -> `/static/audio/{uuid}.mp3`); Branch B `gemini` (`TTS_PROVIDER=="gemini"` -> `client.models.generate_content(model=GEMINI_TTS_MODEL, contents=formatted_summary, config={response_modalities:["audio"], speech_config:...})` -> bytes to `static/audio/{uuid}.mp3`); `TTS_MOCK_MODE=True` returns `/static/audio/mock_response.mp3`; never blocks `summary_message` (`TECH_SPEC.md:84-85`) — Tests: `tests/test_tts_node.py:6-65`, verify `audio_url` static serving `main.py:32-35`
-- [ ] **Phase G. E2E Hardening** — SSE `app/main.py:47-101` + `app/graph.py:30-63` `MemorySaver` `thread_id`, `ruff`/`pyrefly` gates; `frontend/src/lib/components/VoiceInput.svelte:28-44` WebM record + base64, `AgentTimeline.svelte:61-112` POST SSE — Tests: `tests/test_api_stream.py`, `tests/test_graph.py`, `frontend vitest run`; Validation gate per `AGENTS.md:6`: `uv run ruff format --check . && uv run ruff check . && uv run pyrefly check && uv run pytest backend/tests`
-
-> Each phase: create failing test first -> minimal impl -> `uv run ruff format --check . && uv run ruff check . && uv run pyrefly check && uv run pytest backend/tests` -> mark `[x]` and STOP for review (single active task per `AGENTS.md:2-3`).
-
-## Phase 7: Hybrid create_agent migration (LangGraph v1 + pure-async Gemini, 2026-09-03)
-
-> Waiver of `AGENTS.md:1` per user decisions: (a) hybrid 3-node wrapper, (b) enum-routed
-> structured output + per-intent prompts, (c) keep all `NodeName` values. Outer graph
-> `START → stt → shopper_agent → tts → END`; middle 5 steps become ReAct tools inside
-> `create_agent` subgraph (prod) with deterministic fallback offline. No `to_thread`.
-
-- [x] **Phase H1. Deps** — Add `langchain>=1.0.0`, `langchain-google-genai>=2.0.0` to `pyproject.toml`; `create_agent`/`AgentState`/`ToolStrategy` import smoke
-- [x] **Phase H2. State** — New `SilpoAgentState(LangChainAgentState)` in `app/state.py` (`messages` inherits `add_messages` reducer, domain fields `NotRequired` + `current_step`); legacy `AgentState` kept for node compat — Tests: `tests/test_silpo_agent_state.py`
-- [x] **Phase H6. Pure-async** — `services/gemini_service.py` single `_agenerate()` via `client.aio` (no `to_thread`), regex JSON extraction; `services/tts_service.py` `await client.aio` — Tests: `tests/test_pure_async_gemini.py`
-- [x] **Phase H3. Tools** — New `app/agent_tools.py`: async `plan_items`/`fetch_products`/`check_budget`/`create_cart` returning `Command` updates — Tests: `tests/test_agent_tools.py`
-- [x] **Phase H4. Router+factory** — New `app/router_schema.py` (`IntentRoute` strict `IntentEnum`), `app/prompts.py` (`BASE_PROMPT` + `INTENT_PROMPTS`), `app/middleware.py` (`intent_router` dynamic_prompt + `budget_guard`), `app/agent_factory.py` (`create_agent` + `ToolStrategy(IntentRoute)`, offline-safe placeholder key) — Tests: `tests/test_agent_factory.py`
-- [x] **Phase H5. Wrapper+SSE** — New `app/shopper_node.py` (prod `create_agent`, offline deterministic fallback, error fallback); `app/graph.py` 3-node wrapper + `INNER_TO_LEGACY`/`LEGACY_SUBSTEP_ORDER`; `app/main.py` expands `shopper_agent` (`== NodeName.SHOPPER_AGENT`, StrEnum) into legacy SSE steps; 7 legacy `NodeName` values kept + `SHOPPER_AGENT` member — Tests: `tests/test_shopper_node.py`, updated `tests/test_graph.py`
+- Run gated live Gemini/MCP/TTS smoke tests with real credentials.
+- Decide whether to remove the compatibility alias `AgentState = SilpoAgentState` after downstream consumers migrate.
+- Keep `.docs/LANGRAPH_DISCOVERY.md` as historical reference only; it is not the active architecture contract.

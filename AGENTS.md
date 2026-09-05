@@ -20,11 +20,24 @@
 ## 🏗️ Code Quality Guardrails
 - **Modern Typing:** Суворо використовувати вбудовані дженеріки (`dict`, `list`, `set`, `tuple`) та union синтаксис `X | None` / `X | Y` замість `typing.Dict`, `typing.List`, `typing.Optional`, `typing.Union`.
 - **Enums:** Усі ноди (`NodeName`) та інтенти (`IntentEnum`) реалізовувати суворо через `StrEnum`.
+- **Comments:** Не використовуй коментарі по коду занадто часто, код має бути самоописуючий, назви змінних і функцій описують що вони виконують і не вимагають додаткового пояснення.
 - **FastAPI SSE:** Використовувати нативний `StreamingResponse` (`media_type="text/event-stream"`) без додаткових сторонніх бібліотек.
 - **Checkpoints:** Використовувати `MemorySaver` із `configurable: {"thread_id": ...}` для збереження контексту чату.
 - **Tooling Rule:** Do not use bare `pip install` or ad hoc global Python tooling for repo work. Use `uv`-managed commands and project-local dependencies only.
 - **Formatting Rule:** Run the formatter before final validation; keep code style consistent and avoid manual drift from the repo defaults.
 - **Lint & Type Rule:** Treat `ruff` and `pyrefly` as required verification steps for Python code quality, not optional extras.
+
+### NO GLOBAL VARIABLES OR `global` KEYWORD
+* **Strictly Prohibited:** Never use the `global` keyword or mutable module-level state (`_VAR = None`).
+* **Why:** Global state creates race conditions, breaks async safety, hinders parallel test execution, and hides dependencies.
+
+#### Approved Alternatives:
+1. **Caching/Singletons:** Use `@functools.lru_cache(maxsize=1)` for lazy singletons, and reset using `.cache_clear()` in tests.
+2. **Dependency Injection:** Wrap stateful nodes/handlers inside classes or factory closures. Pass dependencies via initializers or function arguments.
+3. **Application State:** Store dynamic state in request/graph contexts (e.g., LangGraph `State`, FastAPI `app.state`, or `ContextVar`).
+
+#### Mandatory Linter Rule:
+* Enable Ruff rule `PLW0603` (`global-statement`) in `pyproject.toml`. All generated code must pass this check.
 
 ## 🧩 Project Management Expectations
 - Maintain a single active task at a time unless explicitly instructed otherwise.

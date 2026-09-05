@@ -40,13 +40,15 @@ class Settings(BaseSettings):
     TTS_MOCK_MODE: bool = True
     RESPEECHER_API_KEY: str = ""
     RESPEECHER_VOICE_ID: str = ""
+    RESPEECHER_API_URL: str = ""
     MCP_MOCK_MODE: bool = True
     OPENAI_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-3.7-flash"
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     GEMINI_TTS_MODEL: str = "gemini-3.1-flash-tts-preview"
     TTS_PROVIDER: Literal["respeecher", "gemini"] = "respeecher"
     GEMINI_MOCK_MODE: bool = False
+    LOG_LEVEL: str = "INFO"
 
 
 settings = Settings()

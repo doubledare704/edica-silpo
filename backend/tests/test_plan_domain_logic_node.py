@@ -1,9 +1,11 @@
+import pytest
 from app.enums import IntentEnum
 from app.nodes.plan_domain_logic import plan_domain_logic_node
 from app.state import AgentState
 
 
-def test_plan_domain_logic_party_intent() -> None:
+@pytest.mark.asyncio
+async def test_plan_domain_logic_party_intent() -> None:
     state: AgentState = {
         "audio_bytes": None,
         "user_text": "Збери кошик для пікніка на 6 людей до 2500 грн, один вегетаріанець",
@@ -23,7 +25,7 @@ def test_plan_domain_logic_party_intent() -> None:
         "audio_url": None,
         "messages": [],
     }
-    result = plan_domain_logic_node(state)
+    result = await plan_domain_logic_node(state)
     assert "calculated_items" in result
     items = result["calculated_items"]
     assert len(items) > 0
@@ -32,7 +34,8 @@ def test_plan_domain_logic_party_intent() -> None:
     assert any("овочі" in name or "гриль" in name for name in item_names)
 
 
-def test_plan_domain_logic_budget_reduction_on_retry() -> None:
+@pytest.mark.asyncio
+async def test_plan_domain_logic_budget_reduction_on_retry() -> None:
     state: AgentState = {
         "audio_bytes": None,
         "user_text": "Пікнік",
@@ -55,7 +58,7 @@ def test_plan_domain_logic_budget_reduction_on_retry() -> None:
         "audio_url": None,
         "messages": [],
     }
-    result = plan_domain_logic_node(state)
+    result = await plan_domain_logic_node(state)
     items = result["calculated_items"]
     assert len(items) > 0
     quantities = [i["quantity"] for i in items]

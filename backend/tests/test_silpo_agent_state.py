@@ -1,19 +1,12 @@
-"""Phase H2: SilpoAgentState extends langchain.agents.AgentState with add_messages reducer."""
+"""The graph uses one typed state with the LangGraph message reducer."""
 
-from typing import get_args, get_origin
-
-from langchain.agents import AgentState as LangChainAgentState
 from langchain_core.messages import HumanMessage
 
 
-def test_silpo_state_inherits_langchain_agent_state() -> None:
+def test_silpo_state_is_not_a_create_agent_state() -> None:
     from app.state import SilpoAgentState
 
-    # TypedDict does not support issubclass; check orig bases + messages annotation instead
-    assert any(getattr(base, "__name__", "") == "AgentState" for base in getattr(SilpoAgentState, "__orig_bases__", ()))
-    assert "messages" in SilpoAgentState.__annotations__ or "messages" in getattr(
-        LangChainAgentState, "__annotations__", {}
-    )
+    assert "messages" in SilpoAgentState.__annotations__
 
 
 def test_silpo_state_messages_has_add_messages_reducer() -> None:
@@ -67,11 +60,7 @@ def test_silpo_state_instantiation_with_messages() -> None:
     assert len(state["messages"]) == 1
 
 
-def test_legacy_agent_state_still_importable() -> None:
-    # Backward compat during migration: old AgentState alias must remain until graph cutover
-    from app.state import AgentState
+def test_agent_state_alias_is_importable() -> None:
+    from app.state import AgentState, SilpoAgentState
 
-    assert "messages" in AgentState.__annotations__
-
-    _ = get_origin
-    _ = get_args
+    assert AgentState is SilpoAgentState

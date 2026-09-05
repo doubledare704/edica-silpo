@@ -1,6 +1,6 @@
 import pytest
 from app.enums import IntentEnum, NodeName
-from app.graph import INNER_TO_LEGACY, create_silpo_agent_graph
+from app.graph import create_silpo_agent_graph, route_constraints
 from app.state import SilpoAgentState
 
 
@@ -40,12 +40,26 @@ async def test_silpo_agent_graph_full_run() -> None:
 @pytest.mark.asyncio
 async def test_silpo_agent_graph_nodes_registered() -> None:
     graph = create_silpo_agent_graph()
-    # Hybrid wrapper: 3 physical nodes (decision a)
-    for physical in [NodeName.STT, NodeName.SHOPPER_AGENT, NodeName.TTS]:
-        assert physical in graph.nodes, f"missing physical node {physical}"
-    # Legacy NodeName values preserved plus wrapper member (decision c)
-    assert len(list(NodeName)) == 8
-    # Every legacy step is emitted: STT/SHOPPER_AGENT/TTS as physical nodes, rest via mapper
-    emitted = {"stt", "shopper_agent", "tts"} | {n.value for n in INNER_TO_LEGACY.values()}
-    for node in NodeName:
-        assert node.value in emitted, f"legacy step {node.value} not emitted"
+    expected_nodes = [
+        NodeName.STT,
+        NodeName.PARSE_INTENT,
+        NodeName.PLAN_DOMAIN_LOGIC,
+        NodeName.MCP_FETCH,
+        NodeName.CHECK_CONSTRAINTS,
+        NodeName.CREATE_CART,
+        NodeName.TTS,
+    ]
+    for node in expected_nodes:
+        assert node.value in graph.nodes, f"missing graph node {node}"
+
+
+def test_route_constraints_loops_only_while_attempts_remain() -> None:
+    assert route_constraints({"is_budget_exceeded": True, "attempts": 1, "max_attempts": 3}) == (
+        NodeName.PLAN_DOMAIN_LOGIC.value
+    )
+    assert route_constraints({"is_budget_exceeded": True, "attempts": 3, "max_attempts": 3}) == (
+        NodeName.CREATE_CART.value
+    )
+    assert route_constraints({"is_budget_exceeded": False, "attempts": 1, "max_attempts": 3}) == (
+        NodeName.CREATE_CART.value
+    )

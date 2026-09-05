@@ -2,21 +2,21 @@ import math
 from typing import Any, ClassVar, Protocol
 
 from ..enums import IntentEnum
-from ..state import AgentState
+from ..state import SilpoAgentState
 
 
 class DomainPlanner(Protocol):
-    def plan(self, state: AgentState) -> list[dict[str, Any]]:
+    def plan(self, state: SilpoAgentState) -> list[dict[str, Any]]:
         """Generates calculated item requests with quantities and preferences."""
         ...
 
-    def format_summary(self, total_price: float, state: AgentState) -> str:
+    def format_summary(self, total_price: float, state: SilpoAgentState) -> str:
         """Formats Ukrainian summary text for the created cart."""
         ...
 
 
 class PartyDomainPlanner:
-    def plan(self, state: AgentState) -> list[dict[str, Any]]:
+    def plan(self, state: SilpoAgentState) -> list[dict[str, Any]]:
         people_count = state.get("people_count") or 1
         dietary = state.get("dietary_restrictions") or []
         is_retry = state.get("is_budget_exceeded", False)
@@ -81,13 +81,13 @@ class PartyDomainPlanner:
 
         return calculated_items
 
-    def format_summary(self, total_price: float, state: AgentState) -> str:
+    def format_summary(self, total_price: float, state: SilpoAgentState) -> str:
         people_count = state.get("people_count") or 1
         return f"Я зібрав кошик для пікніка на {people_count} осіб на суму {int(total_price)} гривень."
 
 
 class BudgetDomainPlanner:
-    def plan(self, state: AgentState) -> list[dict[str, Any]]:
+    def plan(self, state: SilpoAgentState) -> list[dict[str, Any]]:
         return [
             {
                 "query": "Молоко Премія 2.5%",
@@ -109,7 +109,7 @@ class BudgetDomainPlanner:
             },
         ]
 
-    def format_summary(self, total_price: float, state: AgentState) -> str:
+    def format_summary(self, total_price: float, state: SilpoAgentState) -> str:
         products_count = len(state.get("mcp_products", []))
         return f"Я підібрав економний кошик із {products_count} товарів на суму {int(total_price)} гривень."
 
@@ -131,7 +131,7 @@ class OfficeDomainPlanner:
         ("Вода питна негазована 1.5 л Премія", "drinks", 0.30),
     ]
 
-    def plan(self, state: AgentState) -> list[dict[str, Any]]:
+    def plan(self, state: SilpoAgentState) -> list[dict[str, Any]]:
         people_count = state.get("people_count") or 5  # default office of 5
         is_retry = state.get("is_budget_exceeded", False)
         attempts = state.get("attempts", 0)
@@ -152,7 +152,7 @@ class OfficeDomainPlanner:
 
         return items
 
-    def format_summary(self, total_price: float, state: AgentState) -> str:
+    def format_summary(self, total_price: float, state: SilpoAgentState) -> str:
         products_count = len(state.get("mcp_products", []))
         return f"Я сформував офісний кошик із {products_count} товарів на суму {int(total_price)} гривень."
 
@@ -175,7 +175,7 @@ class GourmetDomainPlanner:
         ("Виноград кишмиш", "fruit"),
     ]
 
-    def plan(self, state: AgentState) -> list[dict[str, Any]]:
+    def plan(self, state: SilpoAgentState) -> list[dict[str, Any]]:
         raw_requests = state.get("raw_item_requests") or []
         is_retry = state.get("is_budget_exceeded", False)
         attempts = state.get("attempts", 0)
@@ -221,13 +221,13 @@ class GourmetDomainPlanner:
 
         return items
 
-    def format_summary(self, total_price: float, state: AgentState) -> str:
+    def format_summary(self, total_price: float, state: SilpoAgentState) -> str:
         products_count = len(state.get("mcp_products", []))
         return f"Я підібрав гурманський кошик із {products_count} сирів та вин на суму {int(total_price)} гривень."
 
 
 class GeneralDomainPlanner:
-    def plan(self, state: AgentState) -> list[dict[str, Any]]:
+    def plan(self, state: SilpoAgentState) -> list[dict[str, Any]]:
         raw_items = state.get("raw_item_requests") or ["продукти"]
         is_retry = state.get("is_budget_exceeded", False)
         return [
@@ -240,7 +240,7 @@ class GeneralDomainPlanner:
             for item in raw_items
         ]
 
-    def format_summary(self, total_price: float, state: AgentState) -> str:
+    def format_summary(self, total_price: float, state: SilpoAgentState) -> str:
         products_count = len(state.get("mcp_products", []))
         return f"Я сформував кошик із {products_count} товарів на суму {int(total_price)} гривень."
 

@@ -1,7 +1,9 @@
 import logging
 import uuid
 from pathlib import Path
+from typing import Any
 
+import httpx
 from google.genai import types
 
 from ..config import settings
@@ -38,35 +40,75 @@ async def generate_audio_gemini(text: str) -> str | None:
                 ),
             ),
         )
-        # Response may contain inline_data or audio bytes
-        # Try common locations
-        candidates = getattr(response, "candidates", None)
-        if candidates:
-            # Look for inline data
-            for cand in candidates:
-                content = getattr(cand, "content", None)
-                parts = getattr(content, "parts", None) if content else None
-                if parts:
-                    for part in parts:
-                        inline = getattr(part, "inline_data", None)
-                        if inline and getattr(inline, "data", None):
-                            audio_bytes = inline.data  # type: ignore[attr-defined]
-                            # inline.data may be base64 string or bytes
-                            if isinstance(audio_bytes, str):
-                                import base64
-
-                                audio_bytes = base64.b64decode(audio_bytes)
-                            return _save_audio_bytes(audio_bytes)
-
-        # Fallback: try response.candidates[0].content.parts[0].inline_data
-        # Alternative shape via SDK tests
-        logger.warning("Gemini TTS returned no inline_data, checking alternative")
-        # Some SDK versions return bytes directly via response
-        # If nothing found, return None
-        return None
+        audio_bytes = _extract_audio_bytes(response)
+        if audio_bytes is None:
+            logger.warning("Gemini TTS returned no audio data")
+            return None
+        return _save_audio_bytes(audio_bytes)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Gemini TTS failed: %s", exc)
         return None
+
+
+def _extract_audio_bytes(response: Any) -> bytes | None:
+    candidates = getattr(response, "candidates", None) or []
+    for candidate in candidates:
+        content = getattr(candidate, "content", None)
+        for part in getattr(content, "parts", None) or []:
+            inline = getattr(part, "inline_data", None)
+            data = getattr(inline, "data", None) if inline else None
+            if data:
+                if isinstance(data, str):
+                    import base64
+
+                    return base64.b64decode(data)
+                return bytes(data)
+
+    output_audio = getattr(response, "output_audio", None)
+    data = getattr(output_audio, "data", None) if output_audio else None
+    if isinstance(data, str):
+        import base64
+
+        return base64.b64decode(data)
+    if data:
+        return bytes(data)
+    return None
+
+
+async def generate_audio_respeecher(text: str) -> str | None:
+    """Generates audio through a configured Respeecher HTTP endpoint."""
+    formatted = format_ukrainian_speech_text(text)
+    if not formatted.strip() or not settings.RESPEECHER_API_KEY or not settings.RESPEECHER_VOICE_ID:
+        return None
+
+    endpoint = getattr(settings, "RESPEECHER_API_URL", "")
+    if not endpoint:
+        logger.warning("Respeecher TTS endpoint is not configured")
+        return None
+
+    response_content: bytes
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(
+            endpoint,
+            headers={"Authorization": f"Bearer {settings.RESPEECHER_API_KEY}"},
+            json={"text": formatted, "voice_id": settings.RESPEECHER_VOICE_ID},
+        )
+        response.raise_for_status()
+        if "application/json" in response.headers.get("content-type", ""):
+            payload = response.json()
+            audio_url = payload.get("audio_url")
+            if audio_url:
+                return str(audio_url)
+            encoded_audio = payload.get("audio_base64")
+            if not encoded_audio:
+                raise ValueError("Respeecher response contains no audio")
+            import base64
+
+            response_content = base64.b64decode(encoded_audio)
+        else:
+            response_content = response.content
+
+    return _save_audio_bytes(response_content)
 
 
 def _save_audio_bytes(audio_bytes: bytes) -> str | None:

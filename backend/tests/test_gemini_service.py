@@ -8,7 +8,7 @@ from app.enums import IntentEnum
 def test_default_gemini_settings() -> None:
     config = Settings()
     assert config.GEMINI_API_KEY == ""
-    assert config.GEMINI_MODEL == "gemini-3.7-flash"
+    assert config.GEMINI_MODEL == "gemini-3.5-flash-lite"
     assert config.GEMINI_TTS_MODEL == "gemini-3.1-flash-tts-preview"
     assert config.TTS_PROVIDER == "respeecher"
     assert config.GEMINI_MOCK_MODE is False
@@ -16,7 +16,7 @@ def test_default_gemini_settings() -> None:
 
 def test_gemini_settings_env_override(monkeypatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-    monkeypatch.setenv("GEMINI_MODEL", "gemini-3.7-flash")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
     monkeypatch.setenv("GEMINI_MOCK_MODE", "true")
     monkeypatch.setenv("TTS_PROVIDER", "gemini")
     config = Settings()

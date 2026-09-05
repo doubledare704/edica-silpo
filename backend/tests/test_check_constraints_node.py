@@ -1,8 +1,10 @@
+import pytest
 from app.nodes.check_constraints import check_constraints_node
 from app.state import AgentState
 
 
-def test_check_constraints_within_budget() -> None:
+@pytest.mark.asyncio
+async def test_check_constraints_within_budget() -> None:
     state: AgentState = {
         "audio_bytes": None,
         "user_text": None,
@@ -37,13 +39,14 @@ def test_check_constraints_within_budget() -> None:
         "audio_url": None,
         "messages": [],
     }
-    result = check_constraints_node(state)
+    result = await check_constraints_node(state)
     assert result["total_price"] == 650.0
     assert result["attempts"] == 1
     assert result["is_budget_exceeded"] is False
 
 
-def test_check_constraints_budget_exceeded() -> None:
+@pytest.mark.asyncio
+async def test_check_constraints_budget_exceeded() -> None:
     state: AgentState = {
         "audio_bytes": None,
         "user_text": None,
@@ -78,7 +81,7 @@ def test_check_constraints_budget_exceeded() -> None:
         "audio_url": None,
         "messages": [],
     }
-    result = check_constraints_node(state)
+    result = await check_constraints_node(state)
     assert result["total_price"] == 650.0
     assert result["attempts"] == 1
     assert result["is_budget_exceeded"] is True

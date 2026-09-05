@@ -2,14 +2,15 @@ import logging
 from typing import Any
 
 from ..config import settings
-from ..state import AgentState
+from ..services import tts_service
+from ..state import SilpoAgentState
 from ..utils.speech import format_ukrainian_speech_text
 
 logger = logging.getLogger(__name__)
 
 
-def tts_node(state: AgentState) -> dict[str, Any]:
-    """Prepares Ukrainian speech text and handles Respeecher TTS or mock audio."""
+async def tts_node(state: SilpoAgentState) -> dict[str, Any]:
+    """Formats the summary and optionally generates provider-backed speech."""
     raw_summary = state.get("summary_message") or ""
     formatted_summary = format_ukrainian_speech_text(raw_summary)
 
@@ -19,14 +20,16 @@ def tts_node(state: AgentState) -> dict[str, Any]:
         audio_url = "/static/audio/mock_response.mp3"
     elif settings.TTS_ENABLED:
         try:
-            # When Respeecher integration is active, audio stream URL is retrieved
-            audio_url = "/static/audio/mock_response.mp3"
-        except (RuntimeError, ValueError, OSError) as exc:
+            if settings.TTS_PROVIDER == "gemini":
+                audio_url = await tts_service.generate_audio_gemini(formatted_summary)
+            elif settings.TTS_PROVIDER == "respeecher":
+                audio_url = await tts_service.generate_audio_respeecher(formatted_summary)
+            else:
+                logger.warning("Unsupported TTS provider: %s", settings.TTS_PROVIDER)
+        except Exception as exc:  # noqa: BLE001 - speech must not block shopping
             logger.warning("TTS generation failed, falling back to None: %s", exc)
-            audio_url = None
-    else:
-        audio_url = None
 
+    logger.info("tts done audio_url=%s summary_chars=%d", audio_url, len(formatted_summary))
     return {
         "summary_message": formatted_summary,
         "audio_url": audio_url,

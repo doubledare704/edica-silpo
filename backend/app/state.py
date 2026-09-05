@@ -1,34 +1,13 @@
-from typing import Any, NotRequired
+from typing import Annotated, Any, NotRequired, TypedDict
 
-from langchain.agents import AgentState as LangChainAgentState
 from langchain_core.messages import BaseMessage
-from typing_extensions import TypedDict
+from langgraph.graph.message import add_messages
 
 from .enums import IntentEnum
 
 
-class AgentState(TypedDict):
-    audio_bytes: bytes | None
-    user_text: str | None
-    intent: IntentEnum | None
-    budget: float
-    people_count: int | None
-    dietary_restrictions: list[str]
-    raw_item_requests: list[str]
-    calculated_items: list[dict[str, Any]]
-    mcp_products: list[dict[str, Any]]
-    total_price: float
-    attempts: int
-    max_attempts: int
-    is_budget_exceeded: bool
-    cart_url: str | None
-    summary_message: str
-    audio_url: str | None
-    messages: list[BaseMessage]
-
-
-class SilpoAgentState(LangChainAgentState):
-    """Hybrid create_agent state: inherits messages (add_messages reducer) + domain fields."""
+class SilpoAgentState(TypedDict, total=False):
+    """Shared state for the explicit LangGraph workflow."""
 
     audio_bytes: NotRequired[bytes | None]
     user_text: NotRequired[str | None]
@@ -47,3 +26,7 @@ class SilpoAgentState(LangChainAgentState):
     summary_message: NotRequired[str]
     audio_url: NotRequired[str | None]
     current_step: NotRequired[str]
+    messages: Annotated[list[BaseMessage], add_messages]
+
+
+AgentState = SilpoAgentState

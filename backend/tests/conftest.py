@@ -24,6 +24,7 @@ def isolate_example_env(monkeypatch):
         "RESPEECHER_VOICE_ID",
         "MCP_MOCK_MODE",
         "OPENAI_API_KEY",
+        "LOG_LEVEL",
     ]:
         monkeypatch.delenv(key, raising=False)
 

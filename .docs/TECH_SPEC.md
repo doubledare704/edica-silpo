@@ -1,109 +1,88 @@
-# Technical Specification & Architecture Contract
+# Technical Specification
 
-## 1. Shared domain enums (`app/enums.py`)
+## Runtime
 
-```python
-from enum import StrEnum
+- Python 3.12+
+- Package manager: `uv`
+- Backend: FastAPI, LangGraph, native async `google-genai`
+- Frontend: SvelteKit 5
+- Gemini model: `gemini-3.5-flash-lite`
+- Optional Gemini TTS model: `gemini-3.1-flash-tts-preview`
 
+The 3.5 Flash Lite model is intentional: it provides lower availability and rate-limit risk for this workload than the busier 3.7 model.
 
-class IntentEnum(StrEnum):
-    PARTY = "party"
-    BUDGET = "budget"
-    OFFICE = "office"
-    GOURMET = "gourmet"
+## State
 
+`backend/app/state.py` defines the single graph state, `SilpoAgentState`:
 
-class NodeName(StrEnum):
-    STT = "stt"
-    SHOPPER_AGENT = "shopper_agent"
-    PARSE_INTENT = "parse_intent"
-    PLAN_DOMAIN_LOGIC = "plan_domain_logic"
-    MCP_FETCH = "mcp_fetch"
-    CHECK_CONSTRAINTS = "check_constraints"
-    CREATE_CART = "create_cart"
-    TTS = "tts"
-```
+- `messages: Annotated[list[BaseMessage], add_messages]`
+- audio input: `audio_bytes`, `user_text`
+- intent: `intent`, `budget`, `people_count`, `dietary_restrictions`, `raw_item_requests`
+- shopping: `calculated_items`, `mcp_products`, `total_price`
+- retry: `attempts`, `max_attempts`, `is_budget_exceeded`
+- output: `cart_url`, `summary_message`, `audio_url`
+- `current_step` is retained only for compatibility with prior state payloads.
 
-## 2. State topology (`app/state.py`)
+`AgentState` is a compatibility alias for `SilpoAgentState`. New code should import `SilpoAgentState`.
 
-Legacy `AgentState` (plain `TypedDict`, kept for node compat) plus hybrid
-`SilpoAgentState(LangChainAgentState)` used by the wrapper graph and `create_agent`
-subgraph — `messages` inherits the `add_messages` reducer; domain fields are
-`NotRequired` with an extra `current_step` tracker:
-
-```python
-class SilpoAgentState(LangChainAgentState):
-    audio_bytes: NotRequired[bytes | None]
-    user_text: NotRequired[str | None]
-    intent: NotRequired[IntentEnum | None]
-    budget: NotRequired[float]
-    people_count: NotRequired[int | None]
-    dietary_restrictions: NotRequired[list[str]]
-    raw_item_requests: NotRequired[list[str]]
-    calculated_items: NotRequired[list[dict[str, Any]]]
-    mcp_products: NotRequired[list[dict[str, Any]]]
-    total_price: NotRequired[float]
-    attempts: NotRequired[int]
-    max_attempts: NotRequired[int]
-    is_budget_exceeded: NotRequired[bool]
-    cart_url: NotRequired[str | None]
-    summary_message: NotRequired[str]
-    audio_url: NotRequired[str | None]
-    current_step: NotRequired[str]
-```
-
-## 3. LangGraph topology and conditional edges
-
-Hybrid wrapper (LangGraph v1, `create_agent` subgraph). Physical nodes: `stt`,
-`shopper_agent`, `tts`. Legacy `NodeName` values are preserved for the SSE
-contract — `INNER_TO_LEGACY` in `app/graph.py` maps inner ReAct activity back to
-legacy step names, and `POST /api/agent/stream` expands `shopper_agent` into the
-five legacy `thinking_step` events.
+## Graph
 
 ```text
-[STT] ➔ [SHOPPER_AGENT] ➔ [TTS] ➔ END
-            |
-            ├─ prod (GEMINI_API_KEY set): create_agent ReAct loop
-            │    [parse→plan_items ➔ fetch_products ➔ check_budget ⇄(retry)➔ create_cart]
-            │    router: ToolStrategy(IntentRoute) strict IntentEnum;
-            │    prompts: intent_router dynamic_prompt; guard: budget_guard
-            └─ offline/mock or LLM error: deterministic fallback
-                 [PARSE_INTENT] ➔ [PLAN_DOMAIN_LOGIC] ➔ [MCP_FETCH] ➔ [CHECK_CONSTRAINTS]
-                                                                       |
-             ┌───────────────────────────────────────────────────────┴────┐
-             │ [is_budget_exceeded && attempts < max_attempts]          │
-             ▼                                                          ▼
-       [PLAN_DOMAIN_LOGIC]                                          [CREATE_CART]
+START
+  -> stt
+  -> parse_intent
+  -> plan_domain_logic
+  -> mcp_fetch
+  -> check_constraints
+       | budget exceeded and attempts remain
+       v
+    plan_domain_logic
+       | otherwise
+       v
+    create_cart
+  -> tts
+  -> END
 ```
 
-All Gemini calls are pure-async via `client.aio.models.generate_content` — no
-`asyncio.to_thread` sync fallback anywhere (`rg to_thread backend/` is empty).
+All graph nodes are async. `check_constraints` increments `attempts` exactly once per catalog evaluation. `MemorySaver` persists conversations using `configurable.thread_id`.
 
-## 4. Respeecher TTS preparation and formatting contract
+## Integrations
 
-All text responses passed into `tts_node` before sending them to the Respeecher API must follow this system contract:
+### Gemini
 
-- **Language:** Ukrainian only in all cases.
-- **Plain text only:** no Markdown, no lists, no URLs, no JSON, and no IDs.
-- **Numbers as words:** all numbers, dates, prices, and times must be written as words such as "тридцять чотири гривні" and "п'ятнадцяте травня".
-- **Item and sentence limits:** a maximum of two items per sentence; the total response should be one or two short sentences.
-- **Tool-call fillers:** insert a short filler phrase immediately before the tool call, for example "Секунду.", "Дай перевірю.", or "Хвилинку."
+STT and intent parsing use `google-genai` through `client.aio`. Intent parsing requests structured JSON and validates `ParsedIntentSchema`. Missing credentials, API failures, empty responses, and invalid output use deterministic local fallback logic.
 
-### 4.1 Respeecher configuration
+### MCP and cart
 
-- `TTS_ENABLED` (`bool`, default: `False`): global speech enable flag.
-- `TTS_MOCK_MODE` (`bool`, default: `True`): when `True`, returns the local audio path `/static/audio/mock_response.mp3`.
-- **Error fallback:** a TTS failure must not block the main `summary_message`; set `audio_url = None` instead.
+`MCP_MOCK_MODE=true` uses local/mock behavior. With `MCP_MOCK_MODE=false`, `SilpoClient.for_real_server()` handles the live catalog and OAuth flow. Product normalization preserves `productId`, `companyId`, `branchId`, price, private-label status, and quantity. Cart creation clears a dirty cart before updating products and returns a share URL; failures use a fallback URL without losing the summary.
 
-## 5. SSE protocol contract (`POST /api/agent/stream`)
+### TTS
 
-Event names are defined in `SSEEvent` (`app/enums.py`) and emitted via
-`fastapi.sse.ServerSentEvent` with `response_class=EventSourceResponse`:
+TTS is optional and selected with `TTS_PROVIDER`:
 
-- `event: session_info` → `{"thread_id": "string"}`
-- `event: thinking_step` → `{"node": "string", "status": "string"}`
-- `event: tool_start` → `{"tool": "string", "details": dict}`
-- `event: tool_end` → `{"tool": "string", "status": "string"}`
-- `event: node_complete` → `{"node": "string", "cart_url": "string", "summary": "string", "audio_url": "string"}`
+- `gemini`: async Gemini audio generation saved under `backend/static/audio/`.
+- `respeecher`: async HTTP provider using `RESPEECHER_API_URL`, API key, and voice ID.
+- `TTS_MOCK_MODE=true`: local mock audio URL.
 
+Audio failures never prevent `summary_message` from returning. Speech text is Ukrainian, plain text, and numbers are converted to words before provider calls.
 
+## SSE Contract
+
+`POST /api/agent/stream` emits:
+
+- `session_info`: thread ID
+- `thinking_step`: actual graph node and status
+- `tool_start` / `tool_end`: MCP activity
+- `node_complete`: final intent, totals, cart URL, summary, and audio URL
+
+The endpoint accepts text or base64 audio/WebM input and preserves the existing frontend event names.
+
+## Validation
+
+```bash
+uv run ruff format --check backend/app backend/tests
+uv run ruff check .
+uv run pyrefly check
+uv run pytest backend/tests
+npm run test:run --prefix frontend
+```

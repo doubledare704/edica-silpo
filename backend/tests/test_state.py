@@ -1,8 +1,9 @@
 from typing import Any, get_type_hints
 
 from app.enums import IntentEnum
-from app.state import AgentState
-from langchain_core.messages import BaseMessage, HumanMessage
+from app.state import AgentState, SilpoAgentState
+from langchain_core.messages import HumanMessage
+from langgraph.graph.message import add_messages
 
 
 def test_agent_state_annotations() -> None:
@@ -23,7 +24,12 @@ def test_agent_state_annotations() -> None:
     assert hints["cart_url"] == str | None
     assert hints["summary_message"] is str
     assert hints["audio_url"] == str | None
-    assert hints["messages"] == list[BaseMessage]
+    assert "add_messages" in str(get_type_hints(AgentState, include_extras=True)["messages"])
+
+
+def test_agent_state_is_the_graph_state() -> None:
+    assert AgentState is SilpoAgentState
+    assert add_messages is not None
 
 
 def test_agent_state_instantiation() -> None:

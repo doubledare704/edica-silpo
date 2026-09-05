@@ -29,6 +29,20 @@ async def test_agent_stream_sse_endpoint() -> None:
             assert SSEEvent.SESSION_INFO in event_names
             assert SSEEvent.THINKING_STEP in event_names
             assert SSEEvent.NODE_COMPLETE in event_names
+            thinking_data = [
+                json.loads(lines[index + 1].replace("data: ", ""))
+                for index, line in enumerate(lines[:-1])
+                if line == f"event: {SSEEvent.THINKING_STEP}"
+            ]
+            assert {item["node"] for item in thinking_data} >= {
+                "stt",
+                "parse_intent",
+                "plan_domain_logic",
+                "mcp_fetch",
+                "check_constraints",
+                "create_cart",
+                "tts",
+            }
 
             # Verify session_info payload
             session_data = json.loads(data_lines[0])

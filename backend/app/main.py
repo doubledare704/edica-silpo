@@ -11,9 +11,13 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .config import settings
 from .enums import NodeName, SSEEvent
-from .graph import LEGACY_SUBSTEP_ORDER, create_silpo_agent_graph
+from .graph import create_silpo_agent_graph
+from .logging_config import configure_logging
 from .state import SilpoAgentState
+
+configure_logging(settings.LOG_LEVEL)
 
 logger = logging.getLogger(__name__)
 
@@ -77,25 +81,6 @@ async def _sse_generator(
     async for chunk in agent_graph.astream(initial_state, config=config, stream_mode="updates"):
         for node_name, node_output in chunk.items():
             accumulated_state.update(node_output)
-
-            if node_name == NodeName.SHOPPER_AGENT:
-                # Expand the ReAct subgraph into legacy SSE steps (NodeName contract)
-                for legacy in LEGACY_SUBSTEP_ORDER:
-                    yield ServerSentEvent(
-                        event=SSEEvent.THINKING_STEP, data={"node": legacy.value, "status": "completed"}
-                    )
-                    if legacy == NodeName.MCP_FETCH:
-                        yield ServerSentEvent(
-                            event=SSEEvent.TOOL_START,
-                            data={
-                                "tool": "silpo-py-mcp",
-                                "details": {"items": accumulated_state.get("calculated_items")},
-                            },
-                        )
-                        yield ServerSentEvent(
-                            event=SSEEvent.TOOL_END, data={"tool": "silpo-py-mcp", "status": "completed"}
-                        )
-                continue
 
             # Emit thinking_step event
             yield ServerSentEvent(event=SSEEvent.THINKING_STEP, data={"node": node_name, "status": "completed"})

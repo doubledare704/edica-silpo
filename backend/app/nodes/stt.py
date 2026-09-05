@@ -1,7 +1,10 @@
+import logging
 from typing import Any
 
 from ..services import gemini_service
-from ..state import AgentState
+from ..state import SilpoAgentState
+
+logger = logging.getLogger(__name__)
 
 
 def _detect_mime(audio_bytes: bytes) -> str:
@@ -14,7 +17,7 @@ def _detect_mime(audio_bytes: bytes) -> str:
     return "audio/webm"
 
 
-async def stt_node(state: AgentState) -> dict[str, Any]:
+async def stt_node(state: SilpoAgentState) -> dict[str, Any]:
     """Transcribes input audio bytes via Gemini, or preserves existing user text.
 
     Priority: user_text (user correction) -> Gemini transcribe -> None.
@@ -22,6 +25,7 @@ async def stt_node(state: AgentState) -> dict[str, Any]:
     """
     user_text = state.get("user_text")
     if user_text and user_text.strip():
+        logger.info("stt done source=user_text chars=%d", len(user_text))
         return {"user_text": user_text}
 
     audio_bytes = state.get("audio_bytes")
@@ -30,8 +34,11 @@ async def stt_node(state: AgentState) -> dict[str, Any]:
         transcribed = await gemini_service.transcribe_audio(audio_bytes, mime=mime)
         # transcribe_audio already falls back to hardcoded mock on error/mock mode
         if transcribed and transcribed.strip():
+            logger.info("stt done source=audio mime=%s chars=%d", mime, len(transcribed))
             return {"user_text": transcribed}
         # Fallback if transcribe returns empty
+        logger.info("stt done source=audio_fallback mime=%s", mime)
         return {"user_text": "Збери кошик для пікніка на 6 людей до 2500 грн, один вегетаріанець"}
 
+    logger.info("stt done source=none")
     return {"user_text": user_text}
