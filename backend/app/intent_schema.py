@@ -22,8 +22,28 @@ def extract_intent_fallback(text: str) -> ParsedIntentSchema:
         intent = IntentEnum.OFFICE
     elif any(keyword in text_lower for keyword in ["гурман", "вино", "сир", "gourmet"]):
         intent = IntentEnum.GOURMET
-    else:
+    elif any(
+        keyword in text_lower
+        for keyword in [
+            "кошик",
+            "зібрати",
+            "збери",
+            "продукт",
+            "пікнік",
+            "свят",
+            "вечір",
+            "гостей",
+            "людей",
+            "осіб",
+            "м'ясо",
+            "овоч",
+            "напої",
+            "вугілля",
+        ]
+    ):
         intent = IntentEnum.PARTY
+    else:
+        intent = IntentEnum.UNSUPPORTED
 
     budget = 0.0
     budget_match = re.search(r"(?:до\s*)?(\d+(?:[.,]\d+)?)\s*(?:грн|гривень|гривні|₴)", text_lower)
@@ -50,6 +70,7 @@ def extract_intent_fallback(text: str) -> ParsedIntentSchema:
         IntentEnum.BUDGET: ["молоко", "хліб", "яйця", "масло", "крупа"],
         IntentEnum.OFFICE: ["кава", "чай", "печиво", "вода", "фрукти"],
         IntentEnum.GOURMET: ["сир", "вино", "прошуто", "оливки"],
+        IntentEnum.UNSUPPORTED: [],
     }[intent]
 
     return ParsedIntentSchema(

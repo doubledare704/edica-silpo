@@ -86,3 +86,31 @@ async def test_parse_intent_empty_text() -> None:
 
     assert result["intent"] in (IntentEnum.PARTY, IntentEnum.BUDGET, None)
     assert result["budget"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_parse_intent_marks_unsupported_text() -> None:
+    initial_state: SilpoAgentState = {
+        "audio_bytes": None,
+        "user_text": "Привіт, як справи? бла-бла-бла",
+        "intent": None,
+        "budget": 0.0,
+        "people_count": None,
+        "dietary_restrictions": [],
+        "raw_item_requests": [],
+        "calculated_items": [],
+        "mcp_products": [],
+        "total_price": 0.0,
+        "attempts": 0,
+        "max_attempts": 3,
+        "is_budget_exceeded": False,
+        "cart_url": None,
+        "summary_message": "",
+        "audio_url": None,
+        "messages": [],
+    }
+
+    result = await parse_intent_node(initial_state)
+
+    assert result["intent"] == IntentEnum.UNSUPPORTED
+    assert result["raw_item_requests"] == []

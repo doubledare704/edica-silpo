@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .config import settings
-from .enums import NodeName, SSEEvent
+from .enums import IntentEnum, NodeName, SSEEvent
 from .graph import create_silpo_agent_graph
 from .logging_config import configure_logging
 from .state import SilpoAgentState
@@ -95,7 +95,11 @@ async def _sse_generator(
 
     # Emit final node_complete event
     final_payload = {
-        "node": NodeName.TTS.value,
+        "node": (
+            NodeName.UNSUPPORTED.value
+            if accumulated_state.get("intent") == IntentEnum.UNSUPPORTED
+            else NodeName.TTS.value
+        ),
         "intent": accumulated_state.get("intent"),
         "total_price": accumulated_state.get("total_price", 0.0),
         "is_budget_exceeded": accumulated_state.get("is_budget_exceeded", False),

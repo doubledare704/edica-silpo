@@ -53,6 +53,23 @@ async def test_silpo_agent_graph_nodes_registered() -> None:
         assert node.value in graph.nodes, f"missing graph node {node}"
 
 
+@pytest.mark.asyncio
+async def test_silpo_agent_graph_ends_unsupported_request_before_planning() -> None:
+    graph = create_silpo_agent_graph()
+    initial_state: SilpoAgentState = {
+        "user_text": "Привіт, як справи? бла-бла-бла",
+        "messages": [],
+    }
+
+    final_state = await graph.ainvoke(initial_state, config={"configurable": {"thread_id": "unsupported-request"}})
+
+    assert final_state["intent"] == IntentEnum.UNSUPPORTED
+    assert final_state["summary_message"]
+    assert final_state.get("calculated_items") is None
+    assert final_state.get("mcp_products") is None
+    assert final_state.get("cart_url") is None
+
+
 def test_route_constraints_loops_only_while_attempts_remain() -> None:
     assert route_constraints({"is_budget_exceeded": True, "attempts": 1, "max_attempts": 3}) == (
         NodeName.PLAN_DOMAIN_LOGIC.value

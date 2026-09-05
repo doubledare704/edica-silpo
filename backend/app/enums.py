@@ -6,12 +6,14 @@ class IntentEnum(StrEnum):
     BUDGET = "budget"
     OFFICE = "office"
     GOURMET = "gourmet"
+    UNSUPPORTED = "unsupported"
 
 
 class NodeName(StrEnum):
     STT = "stt"
     SHOPPER_AGENT = "shopper_agent"
     PARSE_INTENT = "parse_intent"
+    UNSUPPORTED = "unsupported"
     PLAN_DOMAIN_LOGIC = "plan_domain_logic"
     MCP_FETCH = "mcp_fetch"
     CHECK_CONSTRAINTS = "check_constraints"
