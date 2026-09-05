@@ -20,6 +20,7 @@ def isolate_example_env(monkeypatch):
         "TTS_MOCK_MODE",
         "RESPEECHER_API_KEY",
         "RESPEECHER_VOICE_ID",
+        "RESPEECHER_MODEL",
         "MCP_MOCK_MODE",
         "OPENAI_API_KEY",
         "LOG_LEVEL",

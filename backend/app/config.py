@@ -39,8 +39,8 @@ class Settings(BaseSettings):
     TTS_ENABLED: bool = False
     TTS_MOCK_MODE: bool = True
     RESPEECHER_API_KEY: str = ""
-    RESPEECHER_VOICE_ID: str = ""
-    RESPEECHER_API_URL: str = ""
+    RESPEECHER_VOICE_ID: str = "olesia-conversation"
+    RESPEECHER_MODEL: Literal["ua-rt", "en-rt"] = "ua-rt"
     MCP_MOCK_MODE: bool = True
     OPENAI_API_KEY: str = ""
     GEMINI_API_KEY: str = ""

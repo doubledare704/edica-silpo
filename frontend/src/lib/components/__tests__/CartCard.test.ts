@@ -5,7 +5,7 @@ import CartCard from '../CartCard.svelte';
 const baseProps = {
 	cartUrl: 'https://silpo.ua/cart/share/mock_123',
 	summary: 'Я зібрав кошик для пікніка на шість осіб.',
-	audioUrl: '/static/audio/mock_response.mp3',
+	audioUrl: '/static/audio/mock_response.wav',
 	totalPrice: 2450.0,
 	isBudgetExceeded: false,
 };
@@ -26,7 +26,7 @@ describe('CartCard', () => {
 		render(CartCard, baseProps);
 		const audio = document.querySelector('audio');
 		expect(audio).toBeInTheDocument();
-		expect(audio).toHaveAttribute('src', '/static/audio/mock_response.mp3');
+		expect(audio).toHaveAttribute('src', '/static/audio/mock_response.wav');
 	});
 
 	it('does not render audio player when audioUrl is null', () => {

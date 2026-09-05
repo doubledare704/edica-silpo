@@ -65,46 +65,41 @@ def _extract_audio_bytes(response: types.GenerateContentResponse) -> bytes | Non
 
 
 async def generate_audio_respeecher(text: str) -> str | None:
-    """Generates audio through a configured Respeecher HTTP endpoint."""
+    """Generates audio via the Respeecher Bytes API.
+
+    Posts the formatted transcript and returns a saved WAV file URL, or None
+    when config is missing or the API returns a non-audio payload.
+    """
     formatted = format_ukrainian_speech_text(text)
     if not formatted.strip() or not settings.RESPEECHER_API_KEY or not settings.RESPEECHER_VOICE_ID:
         return None
 
-    endpoint = getattr(settings, "RESPEECHER_API_URL", "")
-    if not endpoint:
-        logger.warning("Respeecher TTS endpoint is not configured")
-        return None
-
-    response_content: bytes
+    endpoint = f"https://api.respeecher.com/v1/public/tts/{settings.RESPEECHER_MODEL}/tts/bytes"
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             endpoint,
-            headers={"Authorization": f"Bearer {settings.RESPEECHER_API_KEY}"},
-            json={"text": formatted, "voice_id": settings.RESPEECHER_VOICE_ID},
+            headers={"X-API-Key": settings.RESPEECHER_API_KEY, "Content-Type": "application/json"},
+            json={
+                "transcript": formatted,
+                "voice": {"id": settings.RESPEECHER_VOICE_ID},
+                "output_format": {"sample_rate": 22050},
+            },
         )
         response.raise_for_status()
-        if "application/json" in response.headers.get("content-type", ""):
-            payload = response.json()
-            audio_url = payload.get("audio_url")
-            if audio_url:
-                return str(audio_url)
-            encoded_audio = payload.get("audio_base64")
-            if not encoded_audio:
-                raise ValueError("Respeecher response contains no audio")
-            import base64
+        content_type = response.headers.get("content-type", "")
+        if "json" in content_type or content_type.startswith("text/"):
+            logger.warning("Respeecher returned non-audio response (%s)", content_type)
+            return None
+        response_content = response.content
 
-            response_content = base64.b64decode(encoded_audio)
-        else:
-            response_content = response.content
-
-    return _save_audio_bytes(response_content)
+    return _save_audio_bytes(response_content, suffix=".wav")
 
 
-def _save_audio_bytes(audio_bytes: bytes) -> str | None:
+def _save_audio_bytes(audio_bytes: bytes, *, suffix: str = ".mp3") -> str | None:
     try:
         audio_dir = _get_audio_dir()
         audio_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"{uuid.uuid4().hex[:8]}.mp3"
+        filename = f"{uuid.uuid4().hex[:8]}{suffix}"
         file_path = audio_dir / filename
         file_path.write_bytes(audio_bytes if isinstance(audio_bytes, bytes) else bytes(audio_bytes))
         return f"/static/audio/{filename}"

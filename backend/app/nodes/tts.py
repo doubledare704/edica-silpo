@@ -22,7 +22,7 @@ async def tts_node(state: SilpoAgentState) -> dict[str, Any]:
 
     if state.get("audio_bytes"):
         if settings.TTS_MOCK_MODE:
-            audio_url = "/static/audio/mock_response.mp3"
+            audio_url = "/static/audio/mock_response.wav"
         elif settings.TTS_ENABLED:
             try:
                 if settings.TTS_PROVIDER == "gemini":

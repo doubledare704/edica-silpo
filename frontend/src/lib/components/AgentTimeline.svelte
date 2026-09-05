@@ -10,7 +10,7 @@
 	 *   oncomplete(payload: NodeCompletePayload) — called on `node_complete` event
 	 */
 
-	const BACKEND_URL = 'http://localhost:8000';
+	import { getBackendUrl } from '$lib/config';
 
 	interface StreamRequest {
 		userText: string;
@@ -44,6 +44,11 @@
 	let error: string | null = $state(null);
 	let eventCounter = 0;
 
+	function resolveAudioUrl(url: string | null): string | null {
+		if (!url) return null;
+		return /^https?:\/\//.test(url) ? url : `${getBackendUrl()}${url}`;
+	}
+
 	const NODE_LABELS: Record<string, string> = {
 		stt: '🎤 Розпізнавання мовлення',
 		parse_intent: '🧠 Визначення наміру',
@@ -64,7 +69,7 @@
 		error = null;
 
 		try {
-			const response = await fetch(`${BACKEND_URL}/api/agent/stream`, {
+			const response = await fetch(`${getBackendUrl()}/api/agent/stream`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
@@ -136,7 +141,7 @@
 				oncomplete({
 					cartUrl: (data['cart_url'] as string | null) ?? null,
 					summary: String(data['summary'] ?? ''),
-					audioUrl: (data['audio_url'] as string | null) ?? null,
+					audioUrl: resolveAudioUrl((data['audio_url'] as string | null) ?? null),
 					totalPrice: Number(data['total_price'] ?? 0),
 					isBudgetExceeded: Boolean(data['is_budget_exceeded']),
 				});

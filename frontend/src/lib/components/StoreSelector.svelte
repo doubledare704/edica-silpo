@@ -9,9 +9,9 @@
 	 *   • Choosing a branch persists it to localStorage via shared state.
 	 */
 
+	import { getBackendUrl } from '$lib/config';
 	import { formatStoreLabel, selectedStore, selectStore } from '$lib/selectedStore.svelte';
 
-	const BACKEND_URL = 'http://localhost:8000';
 	const SEARCH_LIMIT = 10;
 
 	interface StoreOption {
@@ -44,7 +44,7 @@
 		if (savedLoaded) return;
 		savedLoaded = true;
 		try {
-			const response = await fetch(`${BACKEND_URL}/api/stores/saved-addresses`);
+			const response = await fetch(`${getBackendUrl()}/api/stores/saved-addresses`);
 			if (!response.ok) return;
 			savedAddresses = (await response.json()) as SavedAddress[];
 		} catch {
@@ -65,7 +65,7 @@
 		resolvedAddress = null;
 		try {
 			const response = await fetch(
-				`${BACKEND_URL}/api/stores/nearest?address=${encodeURIComponent(text)}&limit=${SEARCH_LIMIT}`,
+				`${getBackendUrl()}/api/stores/nearest?address=${encodeURIComponent(text)}&limit=${SEARCH_LIMIT}`,
 			);
 			if (!response.ok) throw new Error(`HTTP ${response.status}`);
 			const data = (await response.json()) as {

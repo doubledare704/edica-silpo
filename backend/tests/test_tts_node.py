@@ -41,7 +41,7 @@ async def test_tts_node_mock_mode(monkeypatch) -> None:
         "messages": [],
     }
     result = await tts_node(state)
-    assert result["audio_url"] == "/static/audio/mock_response.mp3"
+    assert result["audio_url"] == "/static/audio/mock_response.wav"
     assert "2450" not in result["summary_message"]
 
 
@@ -169,16 +169,18 @@ async def test_generate_audio_gemini_saves_output_audio(monkeypatch, tmp_path) -
 
 
 @pytest.mark.asyncio
-async def test_generate_audio_respeecher_posts_formatted_text(monkeypatch, tmp_path) -> None:
+async def test_generate_audio_respeecher_posts_bytes_contract(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(tts_service.settings, "RESPEECHER_API_KEY", "fake-key")
-    monkeypatch.setattr(tts_service.settings, "RESPEECHER_VOICE_ID", "voice-1")
-    monkeypatch.setattr(tts_service.settings, "RESPEECHER_API_URL", "https://example.test/tts")
+    monkeypatch.setattr(tts_service.settings, "RESPEECHER_VOICE_ID", "olesia-conversation")
+    monkeypatch.setattr(tts_service.settings, "RESPEECHER_MODEL", "ua-rt")
     monkeypatch.setattr(tts_service, "_get_audio_dir", lambda: tmp_path)
+
+    wav_bytes = b"RIFF" + b"\x00" * 44
 
     class FakeResponse:
         def __init__(self) -> None:
-            self.headers = {"content-type": "audio/mpeg"}
-            self.content = b"respeecher-audio"
+            self.headers = {"content-type": "audio/wav"}
+            self.content = wav_bytes
 
         def raise_for_status(self) -> None:
             return None
@@ -203,5 +205,76 @@ async def test_generate_audio_respeecher_posts_formatted_text(monkeypatch, tmp_p
     audio_url = await tts_service.generate_audio_respeecher("Кошик на 2 особи")
 
     assert audio_url is not None
-    assert client.request["url"] == "https://example.test/tts"
-    assert client.request["json"] == {"text": "Кошик на два особи", "voice_id": "voice-1"}
+    assert audio_url.startswith("/static/audio/")
+    assert audio_url.endswith(".wav")
+    assert client.request["url"] == "https://api.respeecher.com/v1/public/tts/ua-rt/tts/bytes"
+    assert client.request["headers"] == {"X-API-Key": "fake-key", "Content-Type": "application/json"}
+    assert client.request["json"] == {
+        "transcript": "Кошик на два особи",
+        "voice": {"id": "olesia-conversation"},
+        "output_format": {"sample_rate": 22050},
+    }
+    saved = next(iter(tmp_path.iterdir()))
+    assert saved.suffix == ".wav"
+    assert saved.read_bytes() == wav_bytes
+
+
+@pytest.mark.asyncio
+async def test_generate_audio_respeecher_rejects_non_audio_payload(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(tts_service.settings, "RESPEECHER_API_KEY", "fake-key")
+    monkeypatch.setattr(tts_service.settings, "RESPEECHER_VOICE_ID", "olesia-conversation")
+    monkeypatch.setattr(tts_service, "_get_audio_dir", lambda: tmp_path)
+
+    class FakeResponse:
+        def __init__(self) -> None:
+            self.headers = {"content-type": "application/json"}
+            self.content = b'{"error": "nope"}'
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class FakeClient:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+        async def post(self, url: str, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(tts_service.httpx, "AsyncClient", lambda **kwargs: FakeClient())
+
+    assert await tts_service.generate_audio_respeecher("Кошик") is None
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_generate_audio_respeecher_missing_config_makes_no_call(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(tts_service.settings, "RESPEECHER_API_KEY", "")
+    monkeypatch.setattr(tts_service.settings, "RESPEECHER_VOICE_ID", "olesia-conversation")
+    monkeypatch.setattr(tts_service, "_get_audio_dir", lambda: tmp_path)
+
+    async def _fail_client(**kwargs):
+        raise AssertionError("no HTTP call expected")
+
+    monkeypatch.setattr(tts_service.httpx, "AsyncClient", _fail_client)
+
+    assert await tts_service.generate_audio_respeecher("Кошик") is None
+
+
+@pytest.mark.asyncio
+async def test_generate_audio_respeecher_empty_text_makes_no_call(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(tts_service.settings, "RESPEECHER_API_KEY", "fake-key")
+    monkeypatch.setattr(tts_service.settings, "RESPEECHER_VOICE_ID", "olesia-conversation")
+    monkeypatch.setattr(tts_service, "_get_audio_dir", lambda: tmp_path)
+
+    async def _fail_client(**kwargs):
+        raise AssertionError("no HTTP call expected")
+
+    monkeypatch.setattr(tts_service.httpx, "AsyncClient", _fail_client)
+
+    assert await tts_service.generate_audio_respeecher("   ") is None

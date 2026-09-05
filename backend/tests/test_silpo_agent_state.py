@@ -58,5 +58,3 @@ def test_silpo_state_instantiation_with_messages() -> None:
     }
     assert state["intent"] == IntentEnum.PARTY
     assert len(state["messages"]) == 1
-
-
