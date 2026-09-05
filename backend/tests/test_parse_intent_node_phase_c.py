@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from app.enums import IntentEnum
 from app.nodes.parse_intent import ParsedIntentSchema
-from app.state import AgentState
+from app.state import SilpoAgentState
 
 
 def _make_state(
@@ -11,7 +11,7 @@ def _make_state(
     user_text: str | None = None,
     audio_bytes: bytes | None = None,
     intent: IntentEnum | None = None,
-) -> AgentState:
+) -> SilpoAgentState:
     return {
         "audio_bytes": audio_bytes,
         "user_text": user_text,

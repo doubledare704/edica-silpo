@@ -4,12 +4,12 @@ import pytest
 from app.enums import IntentEnum
 from app.nodes.create_cart import create_cart_node
 from app.services import mcp_service
-from app.state import AgentState
+from app.state import SilpoAgentState
 
 
 @pytest.mark.asyncio
 async def test_create_cart_node_generates_url_and_summary(monkeypatch) -> None:
-    state: AgentState = {
+    state: SilpoAgentState = {
         "audio_bytes": None,
         "user_text": "Збери кошик для пікніка",
         "intent": IntentEnum.PARTY,

@@ -5,12 +5,12 @@ import pytest
 from app.enums import IntentEnum
 from app.nodes.mcp_fetch import mcp_fetch_node
 from app.services import mcp_service
-from app.state import AgentState
+from app.state import SilpoAgentState
 
 
 @pytest.mark.asyncio
 async def test_mcp_fetch_node_returns_products() -> None:
-    state: AgentState = {
+    state: SilpoAgentState = {
         "audio_bytes": None,
         "user_text": "Збери кошик",
         "intent": IntentEnum.PARTY,

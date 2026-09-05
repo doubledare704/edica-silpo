@@ -99,13 +99,6 @@ async def parse_intent_node(state: SilpoAgentState) -> dict[str, Any]:
             user_text=user_text if user_text.strip() else None,
             audio_bytes=audio_bytes,
         )
-        logger.info(
-            "parse_intent done source=gemini intent=%s budget=%s people=%s items=%d",
-            parsed.intent,
-            parsed.budget,
-            parsed.people_count,
-            len(parsed.raw_item_requests),
-        )
     except Exception:
         logger.exception("Gemini parse_intent failed, falling back to regex")
         parsed = _extract_intent_fallback(user_text or "")

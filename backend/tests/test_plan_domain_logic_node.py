@@ -1,12 +1,12 @@
 import pytest
 from app.enums import IntentEnum
 from app.nodes.plan_domain_logic import plan_domain_logic_node
-from app.state import AgentState
+from app.state import SilpoAgentState
 
 
 @pytest.mark.asyncio
 async def test_plan_domain_logic_party_intent() -> None:
-    state: AgentState = {
+    state: SilpoAgentState = {
         "audio_bytes": None,
         "user_text": "Збери кошик для пікніка на 6 людей до 2500 грн, один вегетаріанець",
         "intent": IntentEnum.PARTY,
@@ -36,7 +36,7 @@ async def test_plan_domain_logic_party_intent() -> None:
 
 @pytest.mark.asyncio
 async def test_plan_domain_logic_budget_reduction_on_retry() -> None:
-    state: AgentState = {
+    state: SilpoAgentState = {
         "audio_bytes": None,
         "user_text": "Пікнік",
         "intent": IntentEnum.PARTY,

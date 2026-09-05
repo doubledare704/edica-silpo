@@ -60,7 +60,3 @@ def test_silpo_state_instantiation_with_messages() -> None:
     assert len(state["messages"]) == 1
 
 
-def test_agent_state_alias_is_importable() -> None:
-    from app.state import AgentState, SilpoAgentState
-
-    assert AgentState is SilpoAgentState

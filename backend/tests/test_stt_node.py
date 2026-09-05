@@ -1,11 +1,11 @@
 import pytest
 from app.nodes.stt import stt_node
-from app.state import AgentState
+from app.state import SilpoAgentState
 
 
 @pytest.mark.asyncio
 async def test_stt_node_preserves_existing_user_text() -> None:
-    initial_state: AgentState = {
+    initial_state: SilpoAgentState = {
         "audio_bytes": None,
         "user_text": "Збери кошик для вечірки",
         "intent": None,
@@ -30,7 +30,7 @@ async def test_stt_node_preserves_existing_user_text() -> None:
 
 @pytest.mark.asyncio
 async def test_stt_node_transcribes_audio_bytes_mock() -> None:
-    initial_state: AgentState = {
+    initial_state: SilpoAgentState = {
         "audio_bytes": b"fake_audio_content",
         "user_text": None,
         "intent": None,
@@ -56,7 +56,7 @@ async def test_stt_node_transcribes_audio_bytes_mock() -> None:
 
 @pytest.mark.asyncio
 async def test_stt_node_handles_empty_input() -> None:
-    initial_state: AgentState = {
+    initial_state: SilpoAgentState = {
         "audio_bytes": None,
         "user_text": None,
         "intent": None,

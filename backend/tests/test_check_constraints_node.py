@@ -1,11 +1,11 @@
 import pytest
 from app.nodes.check_constraints import check_constraints_node
-from app.state import AgentState
+from app.state import SilpoAgentState
 
 
 @pytest.mark.asyncio
 async def test_check_constraints_within_budget() -> None:
-    state: AgentState = {
+    state: SilpoAgentState = {
         "audio_bytes": None,
         "user_text": None,
         "intent": None,
@@ -47,7 +47,7 @@ async def test_check_constraints_within_budget() -> None:
 
 @pytest.mark.asyncio
 async def test_check_constraints_budget_exceeded() -> None:
-    state: AgentState = {
+    state: SilpoAgentState = {
         "audio_bytes": None,
         "user_text": None,
         "intent": None,

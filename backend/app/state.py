@@ -28,5 +28,3 @@ class SilpoAgentState(TypedDict, total=False):
     current_step: NotRequired[str]
     messages: Annotated[list[BaseMessage], add_messages]
 
-
-AgentState = SilpoAgentState

@@ -23,7 +23,7 @@ The 3.5 Flash Lite model is intentional: it provides lower availability and rate
 - output: `cart_url`, `summary_message`, `audio_url`
 - `current_step` is retained only for compatibility with prior state payloads.
 
-`AgentState` is a compatibility alias for `SilpoAgentState`. New code should import `SilpoAgentState`.
+All application code imports `SilpoAgentState` directly.
 
 ## Graph
 

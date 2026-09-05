@@ -1,12 +1,12 @@
 import pytest
 from app.enums import IntentEnum
 from app.nodes.parse_intent import parse_intent_node
-from app.state import AgentState
+from app.state import SilpoAgentState
 
 
 @pytest.mark.asyncio
 async def test_parse_intent_contract_fixture() -> None:
-    initial_state: AgentState = {
+    initial_state: SilpoAgentState = {
         "audio_bytes": None,
         "user_text": "Збери кошик для пікніка на 6 людей до 2500 грн, один вегетаріанець",
         "intent": None,
@@ -36,7 +36,7 @@ async def test_parse_intent_contract_fixture() -> None:
 
 @pytest.mark.asyncio
 async def test_parse_intent_budget() -> None:
-    initial_state: AgentState = {
+    initial_state: SilpoAgentState = {
         "audio_bytes": None,
         "user_text": "Економний кошик продуктів до 1000 грн",
         "intent": None,
@@ -63,7 +63,7 @@ async def test_parse_intent_budget() -> None:
 
 @pytest.mark.asyncio
 async def test_parse_intent_empty_text() -> None:
-    initial_state: AgentState = {
+    initial_state: SilpoAgentState = {
         "audio_bytes": None,
         "user_text": None,
         "intent": None,

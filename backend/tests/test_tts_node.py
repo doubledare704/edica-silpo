@@ -5,7 +5,7 @@ import pytest
 from app.enums import IntentEnum
 from app.nodes.tts import format_ukrainian_speech_text, tts_node
 from app.services import tts_service
-from app.state import AgentState
+from app.state import SilpoAgentState
 
 
 def test_format_ukrainian_speech_text() -> None:
@@ -20,7 +20,7 @@ def test_format_ukrainian_speech_text() -> None:
 @pytest.mark.asyncio
 async def test_tts_node_mock_mode(monkeypatch) -> None:
     monkeypatch.setattr("app.nodes.tts.settings.TTS_MOCK_MODE", True)
-    state: AgentState = {
+    state: SilpoAgentState = {
         "audio_bytes": None,
         "user_text": "Пікнік",
         "intent": IntentEnum.PARTY,
@@ -48,7 +48,7 @@ async def test_tts_node_mock_mode(monkeypatch) -> None:
 async def test_tts_node_disabled_no_mock(monkeypatch) -> None:
     monkeypatch.setattr("app.nodes.tts.settings.TTS_ENABLED", False)
     monkeypatch.setattr("app.nodes.tts.settings.TTS_MOCK_MODE", False)
-    state: AgentState = {
+    state: SilpoAgentState = {
         "audio_bytes": None,
         "user_text": "Пікнік",
         "intent": IntentEnum.PARTY,

@@ -7,11 +7,11 @@ from app.domain.planners import (
     get_domain_planner,
 )
 from app.enums import IntentEnum
-from app.state import AgentState
+from app.state import SilpoAgentState
 
 
-def _make_state(intent: IntentEnum | None, **overrides: object) -> AgentState:
-    base: AgentState = {
+def _make_state(intent: IntentEnum | None, **overrides: object) -> SilpoAgentState:
+    base: SilpoAgentState = {
         "audio_bytes": None,
         "user_text": None,
         "intent": intent,

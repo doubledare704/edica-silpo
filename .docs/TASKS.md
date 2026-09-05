@@ -48,5 +48,4 @@ npm run test:run --prefix frontend
 ## Open Work
 
 - Run gated live Gemini/MCP/TTS smoke tests with real credentials.
-- Decide whether to remove the compatibility alias `AgentState = SilpoAgentState` after downstream consumers migrate.
 - Keep `.docs/LANGRAPH_DISCOVERY.md` as historical reference only; it is not the active architecture contract.

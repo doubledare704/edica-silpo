@@ -1,13 +1,13 @@
 from typing import Any, get_type_hints
 
 from app.enums import IntentEnum
-from app.state import AgentState, SilpoAgentState
+from app.state import SilpoAgentState
 from langchain_core.messages import HumanMessage
 from langgraph.graph.message import add_messages
 
 
 def test_agent_state_annotations() -> None:
-    hints = get_type_hints(AgentState)
+    hints = get_type_hints(SilpoAgentState)
     assert hints["audio_bytes"] == bytes | None
     assert hints["user_text"] == str | None
     assert hints["intent"] == IntentEnum | None
@@ -24,16 +24,15 @@ def test_agent_state_annotations() -> None:
     assert hints["cart_url"] == str | None
     assert hints["summary_message"] is str
     assert hints["audio_url"] == str | None
-    assert "add_messages" in str(get_type_hints(AgentState, include_extras=True)["messages"])
+    assert "add_messages" in str(get_type_hints(SilpoAgentState, include_extras=True)["messages"])
 
 
-def test_agent_state_is_the_graph_state() -> None:
-    assert AgentState is SilpoAgentState
+def test_silpo_agent_state_is_the_graph_state() -> None:
     assert add_messages is not None
 
 
 def test_agent_state_instantiation() -> None:
-    state: AgentState = {
+    state: SilpoAgentState = {
         "audio_bytes": None,
         "user_text": "Збери кошик для пікніка",
         "intent": IntentEnum.PARTY,
