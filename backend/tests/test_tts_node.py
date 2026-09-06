@@ -10,7 +10,7 @@ from google.genai import types
 
 
 def test_format_ukrainian_speech_text() -> None:
-    text = "Я зібрав кошик для пікніка на 6 осіб на суму 2450 гривень."
+    text = "Я зібрала кошик для пікніка на 6 осіб на суму 2450 гривень."
     formatted = format_ukrainian_speech_text(text)
     assert "6" not in formatted
     assert "2450" not in formatted
@@ -36,7 +36,7 @@ async def test_tts_node_mock_mode(monkeypatch) -> None:
         "max_attempts": 3,
         "is_budget_exceeded": False,
         "cart_url": "https://silpo.ua/cart/share/mock_123",
-        "summary_message": "Я зібрав кошик для пікніка на 6 осіб на суму 2450 гривень.",
+        "summary_message": "Я зібрала кошик для пікніка на 6 осіб на суму 2450 гривень.",
         "audio_url": None,
         "messages": [],
     }
@@ -63,7 +63,7 @@ async def test_tts_node_skips_audio_for_text_request(monkeypatch) -> None:
         "max_attempts": 3,
         "is_budget_exceeded": False,
         "cart_url": "https://silpo.ua/cart/share/mock_123",
-        "summary_message": "Я зібрав кошик для пікніка на 6 осіб на суму 2450 гривень.",
+        "summary_message": "Я зібрала кошик для пікніка на 6 осіб на суму 2450 гривень.",
         "audio_url": None,
         "messages": [],
     }
@@ -105,7 +105,7 @@ async def test_tts_node_disabled_no_mock(monkeypatch) -> None:
         "max_attempts": 3,
         "is_budget_exceeded": False,
         "cart_url": "https://silpo.ua/cart/share/mock_123",
-        "summary_message": "Я зібрав кошик для пікніка на 6 осіб на суму 2450 гривень.",
+        "summary_message": "Я зібрала кошик для пікніка на 6 осіб на суму 2450 гривень.",
         "audio_url": None,
         "messages": [],
     }

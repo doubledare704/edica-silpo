@@ -3,6 +3,7 @@
 	import AgentTimeline from '$lib/components/AgentTimeline.svelte';
 	import CartCard from '$lib/components/CartCard.svelte';
 	import SuccessBanner from '$lib/components/SuccessBanner.svelte';
+	import type { CartItem } from '$lib/cart';
 
 	interface CartPayload {
 		cartUrl: string | null;
@@ -10,6 +11,7 @@
 		audioUrl: string | null;
 		totalPrice: number;
 		isBudgetExceeded: boolean;
+		items: CartItem[];
 	}
 
 	interface StreamRequest {
@@ -63,6 +65,7 @@
 			audioUrl={cartPayload.audioUrl}
 			totalPrice={cartPayload.totalPrice}
 			isBudgetExceeded={cartPayload.isBudgetExceeded}
+			items={cartPayload.items}
 		/>
 	{:else}
 		<div class="grid grid-cols-1 md:grid-cols-12 gap-4">

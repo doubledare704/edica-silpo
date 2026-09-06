@@ -19,6 +19,35 @@ router = APIRouter(tags=["agent"])
 agent_graph = create_silpo_agent_graph()
 
 
+def _serialize_cart_items(products: object) -> list[dict[str, object]]:
+    if not isinstance(products, list):
+        return []
+    items: list[dict[str, object]] = []
+    for entry in products:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            price = float(entry.get("price", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            price = 0.0
+        try:
+            quantity = int(entry.get("quantity", 1) or 1)
+        except (TypeError, ValueError):
+            quantity = 1
+        product_id = entry.get("productId") or entry.get("id")
+        items.append(
+            {
+                "id": str(product_id) if product_id is not None else None,
+                "title": str(entry.get("title", "")),
+                "price": round(price, 2),
+                "quantity": quantity,
+                "is_private_label": bool(entry.get("is_private_label", False)),
+                "line_total": round(price * quantity, 2),
+            }
+        )
+    return items
+
+
 async def _sse_generator(
     user_text: str | None,
     thread_id: str,
@@ -80,6 +109,7 @@ async def _sse_generator(
         "cart_url": accumulated_state.get("cart_url"),
         "summary": accumulated_state.get("summary_message"),
         "audio_url": accumulated_state.get("audio_url"),
+        "items": _serialize_cart_items(accumulated_state.get("mcp_products", [])),
     }
     yield ServerSentEvent(event=SSEEvent.NODE_COMPLETE, data=final_payload)
 

@@ -83,7 +83,7 @@ class PartyDomainPlanner:
 
     def format_summary(self, total_price: float, state: SilpoAgentState) -> str:
         people_count = state.get("people_count") or 1
-        return f"Я зібрав кошик для пікніка на {people_count} осіб на суму {int(total_price)} гривень."
+        return f"Я зібрала кошик для пікніка на {people_count} осіб на суму {int(total_price)} гривень."
 
 
 class BudgetDomainPlanner:
@@ -111,7 +111,7 @@ class BudgetDomainPlanner:
 
     def format_summary(self, total_price: float, state: SilpoAgentState) -> str:
         products_count = len(state.get("mcp_products", []))
-        return f"Я підібрав економний кошик із {products_count} товарів на суму {int(total_price)} гривень."
+        return f"Я підібрала економний кошик із {products_count} товарів на суму {int(total_price)} гривень."
 
 
 class OfficeDomainPlanner:
@@ -154,7 +154,7 @@ class OfficeDomainPlanner:
 
     def format_summary(self, total_price: float, state: SilpoAgentState) -> str:
         products_count = len(state.get("mcp_products", []))
-        return f"Я сформував офісний кошик із {products_count} товарів на суму {int(total_price)} гривень."
+        return f"Я сформувала офісний кошик із {products_count} товарів на суму {int(total_price)} гривень."
 
 
 class GourmetDomainPlanner:
@@ -223,7 +223,7 @@ class GourmetDomainPlanner:
 
     def format_summary(self, total_price: float, state: SilpoAgentState) -> str:
         products_count = len(state.get("mcp_products", []))
-        return f"Я підібрав гурманський кошик із {products_count} сирів та вин на суму {int(total_price)} гривень."
+        return f"Я підібрала гурманський кошик із {products_count} сирів та вин на суму {int(total_price)} гривень."
 
 
 class GeneralDomainPlanner:
@@ -242,7 +242,7 @@ class GeneralDomainPlanner:
 
     def format_summary(self, total_price: float, state: SilpoAgentState) -> str:
         products_count = len(state.get("mcp_products", []))
-        return f"Я сформував кошик із {products_count} товарів на суму {int(total_price)} гривень."
+        return f"Я сформувала кошик із {products_count} товарів на суму {int(total_price)} гривень."
 
 
 _PLANNERS: dict[IntentEnum, DomainPlanner] = {

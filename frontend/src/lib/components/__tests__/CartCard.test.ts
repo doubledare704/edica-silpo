@@ -4,10 +4,28 @@ import CartCard from '../CartCard.svelte';
 
 const baseProps = {
 	cartUrl: 'https://silpo.ua/cart/share/mock_123',
-	summary: 'Я зібрав кошик для пікніка на шість осіб.',
+	summary: 'Я зібрала кошик для пікніка на шість осіб.',
 	audioUrl: '/static/audio/mock_response.wav',
 	totalPrice: 2450.0,
 	isBudgetExceeded: false,
+	items: [
+		{
+			id: 'sku-1',
+			title: 'Ошийник свинячий',
+			price: 240.0,
+			quantity: 2,
+			is_private_label: false,
+			line_total: 480.0,
+		},
+		{
+			id: 'sku-2',
+			title: 'Овочі для гриля Премія',
+			price: 85.0,
+			quantity: 1,
+			is_private_label: true,
+			line_total: 85.0,
+		},
+	],
 };
 
 describe('CartCard', () => {
@@ -21,7 +39,7 @@ describe('CartCard', () => {
 
 	it('renders the summary text', () => {
 		render(CartCard, baseProps);
-		expect(screen.getByText('Я зібрав кошик для пікніка на шість осіб.')).toBeInTheDocument();
+		expect(screen.getByText('Я зібрала кошик для пікніка на шість осіб.')).toBeInTheDocument();
 	});
 
 	it('renders a checkout link with correct href', () => {
@@ -73,5 +91,16 @@ describe('CartCard', () => {
 	it('formats large totals in the ring label', () => {
 		render(CartCard, baseProps);
 		expect(screen.getByText('2.45k')).toBeInTheDocument();
+	});
+
+	it('renders the quick preview of picked items', () => {
+		render(CartCard, baseProps);
+		expect(screen.getByTestId('cart-items-preview')).toBeInTheDocument();
+		expect(screen.getByText('Ошийник свинячий')).toBeInTheDocument();
+	});
+
+	it('hides the preview when no items were picked', () => {
+		render(CartCard, { ...baseProps, items: [] });
+		expect(screen.queryByTestId('cart-items-preview')).not.toBeInTheDocument();
 	});
 });

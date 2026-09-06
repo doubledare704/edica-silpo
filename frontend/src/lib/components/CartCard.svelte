@@ -8,7 +8,11 @@
 	 *   audioUrl     — path to TTS audio of the agent reply (or null)
 	 *   totalPrice   — total cart price in UAH
 	 *   isBudgetExceeded — whether the cart exceeded the requested budget
+	 *   items        — picked products for the quick-preview list
 	 */
+
+	import CartItemsPreview from '$lib/components/CartItemsPreview.svelte';
+	import type { CartItem } from '$lib/cart';
 
 	interface Props {
 		cartUrl: string | null;
@@ -16,9 +20,10 @@
 		audioUrl: string | null;
 		totalPrice: number;
 		isBudgetExceeded: boolean;
+		items?: CartItem[];
 	}
 
-	let { cartUrl, summary, audioUrl, totalPrice, isBudgetExceeded }: Props = $props();
+	let { cartUrl, summary, audioUrl, totalPrice, isBudgetExceeded, items = [] }: Props = $props();
 	let audioElement = $state<HTMLAudioElement | null>(null);
 	let autoplayBlocked = $state(false);
 
@@ -99,6 +104,8 @@
 		</div>
 
 		<p class="text-on-surface text-base leading-relaxed mb-6">{summary}</p>
+
+		<CartItemsPreview {items} />
 
 		{#if audioUrl}
 			<div

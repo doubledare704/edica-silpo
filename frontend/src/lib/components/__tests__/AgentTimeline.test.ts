@@ -33,6 +33,16 @@ const COMPLETE_EVENT = {
 		cart_url: 'https://silpo.ua/cart/share/mock_123',
 		summary: 'Кошик зібрано.',
 		audio_url: '/static/audio/abc123.wav',
+		items: [
+			{
+				id: 'sku-1',
+				title: 'Ошийник свинячий',
+				price: 240.0,
+				quantity: 2,
+				is_private_label: false,
+				line_total: 480.0,
+			},
+		],
 	},
 };
 
@@ -123,6 +133,20 @@ describe('AgentTimeline', () => {
 		expect(fetchMock).toHaveBeenCalledWith('https://api.example.com/api/agent/stream', expect.any(Object));
 		expect(oncomplete).toHaveBeenCalledWith(
 			expect.objectContaining({ audioUrl: 'https://api.example.com/static/audio/abc123.wav' }),
+		);
+	});
+
+	it('forwards normalized cart items from node_complete', async () => {
+		const oncomplete = vi.fn();
+		mockFetchWithSse([COMPLETE_EVENT]);
+
+		render(AgentTimeline, { request: REQUEST, oncomplete });
+
+		await waitFor(() => expect(oncomplete).toHaveBeenCalled());
+		expect(oncomplete).toHaveBeenCalledWith(
+			expect.objectContaining({
+				items: [expect.objectContaining({ title: 'Ошийник свинячий', quantity: 2 })],
+			}),
 		);
 	});
 });

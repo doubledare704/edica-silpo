@@ -11,6 +11,7 @@
 	 */
 
 	import { getBackendUrl } from '$lib/config';
+	import { normalizeCartItems, type CartItem } from '$lib/cart';
 
 	interface StreamRequest {
 		userText: string;
@@ -30,6 +31,7 @@
 		audioUrl: string | null;
 		totalPrice: number;
 		isBudgetExceeded: boolean;
+		items: CartItem[];
 	}
 
 	interface Props {
@@ -144,6 +146,7 @@
 					audioUrl: resolveAudioUrl((data['audio_url'] as string | null) ?? null),
 					totalPrice: Number(data['total_price'] ?? 0),
 					isBudgetExceeded: Boolean(data['is_budget_exceeded']),
+					items: normalizeCartItems(data['items']),
 				});
 				break;
 		}
