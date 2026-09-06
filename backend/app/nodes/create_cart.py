@@ -23,7 +23,10 @@ async def create_cart_node(state: SilpoAgentState) -> dict[str, Any]:
     else:
         try:
             if fulfillment is None:
+                logger.info("Current state: %s", state)
                 fulfillment = await mcp_product_service.resolve_fulfillment(state.get("delivery_address"))
+
+            logger.info("Current state.mcp_products: %s", state.get("mcp_products", []))
             cart_url = await mcp_product_service.create_cart(state.get("mcp_products", []), fulfillment)
         except Exception as exc:  # noqa: BLE001 - cart failure must not lose the summary
             cart_id = uuid.uuid4().hex[:8]

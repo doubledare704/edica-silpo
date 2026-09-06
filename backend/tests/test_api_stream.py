@@ -38,7 +38,7 @@ async def test_agent_stream_sse_endpoint() -> None:
                 "stt",
                 "parse_intent",
                 "plan_domain_logic",
-                "mcp_fetch",
+                "picker",
                 "check_constraints",
                 "create_cart",
                 "tts",

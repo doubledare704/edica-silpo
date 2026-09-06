@@ -42,6 +42,12 @@ def test_silpo_state_custom_fields_present() -> None:
         "summary_message",
         "audio_url",
         "current_step",
+        "remaining_budget",
+        "unfulfilled_requests",
+        "is_requirements_met",
+        "picker_trace",
+        "picker_accepted",
+        "shopping_context",
     ]:
         assert field in SilpoAgentState.__annotations__, f"missing {field}"
 

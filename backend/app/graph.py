@@ -1,4 +1,4 @@
-"""Explicit async Silpo workflow with a bounded budget retry loop."""
+"""Explicit async Silpo workflow with a bounded iterative picker loop."""
 
 from typing import Any, Literal, cast
 
@@ -10,8 +10,8 @@ from .enums import IntentEnum, NodeName
 from .nodes import (
     check_constraints_node,
     create_cart_node,
-    mcp_fetch_node,
     parse_intent_node,
+    picker_node,
     plan_domain_logic_node,
     stt_node,
     tts_node,
@@ -20,12 +20,18 @@ from .nodes import (
 from .state import SilpoAgentState
 
 
-def route_constraints(state: SilpoAgentState) -> Literal["plan_domain_logic", "create_cart"]:
-    """Retry planning only while the budget is exceeded and attempts remain."""
+def route_constraints(state: SilpoAgentState) -> Literal["picker", "create_cart"]:
+    """Re-pick while over budget or requirements unmet (with progress guard); else checkout."""
     attempts = int(state.get("attempts", 0) or 0)
     max_attempts = int(state.get("max_attempts", 3) or 3)
-    if bool(state.get("is_budget_exceeded", False)) and attempts < max_attempts:
-        return NodeName.PLAN_DOMAIN_LOGIC.value
+    if attempts >= max_attempts:
+        return NodeName.CREATE_CART.value
+    if bool(state.get("is_budget_exceeded", False)):
+        return NodeName.PICKER.value
+    if not bool(state.get("is_requirements_met", True)):
+        if int(state.get("picker_accepted", 1) or 0) == 0 and attempts > 0:
+            return NodeName.CREATE_CART.value
+        return NodeName.PICKER.value
     return NodeName.CREATE_CART.value
 
 
@@ -44,7 +50,7 @@ def create_silpo_agent_graph(checkpointer: MemorySaver | None = None) -> Compile
     workflow.add_node(NodeName.PARSE_INTENT, parse_intent_node)
     workflow.add_node(NodeName.UNSUPPORTED, unsupported_request_node)
     workflow.add_node(NodeName.PLAN_DOMAIN_LOGIC, plan_domain_logic_node)
-    workflow.add_node(NodeName.MCP_FETCH, mcp_fetch_node)
+    workflow.add_node(NodeName.PICKER, picker_node)
     workflow.add_node(NodeName.CHECK_CONSTRAINTS, check_constraints_node)
     workflow.add_node(NodeName.CREATE_CART, create_cart_node)
     workflow.add_node(NodeName.TTS, tts_node)
@@ -59,13 +65,13 @@ def create_silpo_agent_graph(checkpointer: MemorySaver | None = None) -> Compile
             NodeName.PLAN_DOMAIN_LOGIC: NodeName.PLAN_DOMAIN_LOGIC,
         },
     )
-    workflow.add_edge(NodeName.PLAN_DOMAIN_LOGIC, NodeName.MCP_FETCH)
-    workflow.add_edge(NodeName.MCP_FETCH, NodeName.CHECK_CONSTRAINTS)
+    workflow.add_edge(NodeName.PLAN_DOMAIN_LOGIC, NodeName.PICKER)
+    workflow.add_edge(NodeName.PICKER, NodeName.CHECK_CONSTRAINTS)
     workflow.add_conditional_edges(
         NodeName.CHECK_CONSTRAINTS,
         route_constraints,
         {
-            NodeName.PLAN_DOMAIN_LOGIC: NodeName.PLAN_DOMAIN_LOGIC,
+            NodeName.PICKER: NodeName.PICKER,
             NodeName.CREATE_CART: NodeName.CREATE_CART,
         },
     )

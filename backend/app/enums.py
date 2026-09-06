@@ -16,6 +16,7 @@ class NodeName(StrEnum):
     UNSUPPORTED = "unsupported"
     PLAN_DOMAIN_LOGIC = "plan_domain_logic"
     MCP_FETCH = "mcp_fetch"
+    PICKER = "picker"
     CHECK_CONSTRAINTS = "check_constraints"
     CREATE_CART = "create_cart"
     TTS = "tts"

@@ -1,5 +1,6 @@
 import logging
 import math
+import uuid
 from typing import Any
 
 from silpo_py_mcp import SilpoClient
@@ -8,6 +9,13 @@ from silpo_py_mcp.exceptions import SilpoError
 from ..config import settings
 
 logger = logging.getLogger(__name__)
+
+MOCK_SHOPPING_CONTEXT: dict[str, str] = {
+    "branch_id": "bran-1",
+    "delivery_type": "SelfPickup",
+    "timeslot_start": "2026-09-06T10:00:00",
+    "timeslot_end": "2026-09-06T12:00:00",
+}
 
 STATIC_MCP_FALLBACK_CATALOG: dict[str, dict[str, Any]] = {
     "ошийник": {
@@ -97,6 +105,9 @@ class MCPProductService:
             normalized["companyId"] = company_id
         if branch_id is not None:
             normalized["branchId"] = branch_id
+        slug = cls._product_value(product, "slug")
+        if slug is not None:
+            normalized["slug"] = str(slug)
         return normalized
 
     @staticmethod
@@ -104,72 +115,240 @@ class MCPProductService:
         query_lower = query.lower()
         for key, prod in STATIC_MCP_FALLBACK_CATALOG.items():
             if key in query_lower:
-                return prod.copy()
+                matched = prod.copy()
+                matched["is_fallback"] = True
+                return matched
         return {
             "id": f"sku-gen-{abs(hash(query)) % 1000}",
             "title": query,
             "price": 75.0,
             "is_private_label": "премія" in query_lower,
+            "is_fallback": True,
         }
 
-    async def fetch_products(self, calculated_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        if not calculated_items:
-            return []
+    @staticmethod
+    def _line_total(product: Any, quantity: int) -> float:
+        try:
+            price = float(MCPProductService._product_value(product, "price", default=100.0))
+        except (TypeError, ValueError):
+            price = 100.0
+        return price * quantity
+
+    async def search_one(
+        self,
+        query: str,
+        quantity: int = 1,
+        prefer_private_label: bool = False,
+        max_price: float | None = None,
+        category: str | None = None,
+        context: dict[str, str] | None = None,
+    ) -> dict[str, Any] | None:
+        """Resolves one query to the cheapest fitting product, or None when over ceiling."""
+
+        def with_category(prod: dict[str, Any]) -> dict[str, Any]:
+            if category is not None:
+                prod["category"] = category
+            return prod
+
+        def fallback_or_none() -> dict[str, Any] | None:
+            prod = self._match_fallback(query)
+            prod["quantity"] = quantity
+            if max_price is not None and float(prod.get("price", 0.0)) * quantity > max_price:
+                return None
+            return with_category(prod)
+
+        if context is None:
+            return fallback_or_none()
 
         client = SilpoClient.for_mock() if settings.MCP_MOCK_MODE else SilpoClient.for_real_server()
-        products: list[dict[str, Any]] = []
-
         try:
             async with client:
-                for item in calculated_items:
-                    query = item.get("query", "")
-                    quantity = item.get("quantity", 1)
-                    prefer_private_label = bool(item.get("prefer_private_label", False))
-                    matched_prod: dict[str, Any] | None = None
-
-                    try:
-                        if prefer_private_label:
-                            result = await client.get_products(query, on_sale=True, limit=5)
-                        else:
-                            result = await client.get_products(query, limit=5)
-                        items = getattr(result, "items", [])
-                        if items:
-                            private_items = [
-                                product
-                                for product in items
-                                if bool(
-                                    self._product_value(product, "is_private_label", "isPrivateLabel", default=False)
-                                )
-                            ]
-                            candidates = private_items if prefer_private_label and private_items else items
-                            selected = min(
-                                candidates,
-                                key=lambda product: float(self._product_value(product, "price", default=100.0)),
-                            )
-                            matched_prod = self._normalize_product(
-                                selected,
-                                query,
-                                quantity,
-                                f"sku-{len(products) + 1}",
-                            )
-                    except (SilpoError, RuntimeError, IndexError, KeyError, ValueError) as exc:
-                        logger.debug("Silpo MCP search error for '%s': %s", query, exc)
-
-                    if matched_prod is None:
-                        matched_prod = self._match_fallback(query)
-                        matched_prod["quantity"] = quantity
-
-                    products.append(matched_prod)
+                try:
+                    result = await client.find_products_batch(
+                        context["branch_id"],
+                        context["delivery_type"],
+                        context["timeslot_start"],
+                        context["timeslot_end"],
+                        [query],
+                        limit=5,
+                    )
+                except (SilpoError, RuntimeError, IndexError, KeyError, ValueError) as exc:
+                    logger.debug("Silpo MCP batch search error for '%s': %s", query, exc)
+                    return fallback_or_none()
+                results = self._product_value(result, "results", default={}) or {}
+                items = list(results.get(query, [])) if isinstance(results, dict) else []
+                if max_price is not None:
+                    items = [product for product in items if self._line_total(product, quantity) <= max_price]
+                if not items:
+                    return fallback_or_none()
+                private_items = [
+                    product
+                    for product in items
+                    if bool(self._product_value(product, "is_private_label", "isPrivateLabel", default=False))
+                ]
+                candidates = private_items if prefer_private_label and private_items else items
+                selected = min(candidates, key=lambda product: self._line_total(product, 1))
+                return with_category(self._normalize_product(selected, query, quantity, "sku-search"))
         except (SilpoError, RuntimeError, OSError, ValueError) as exc:
             logger.warning("Silpo MCP client connection error: %s. Using catalog fallback.", exc)
-            for item in calculated_items:
-                query = item.get("query", "")
-                quantity = item.get("quantity", 1)
-                prod = self._match_fallback(query)
-                prod["quantity"] = quantity
-                products.append(prod)
+            return fallback_or_none()
 
+    async def fetch_products(
+        self,
+        calculated_items: list[dict[str, Any]],
+        max_price: float | None = None,
+        context: dict[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
+        if not calculated_items:
+            return []
+        products: list[dict[str, Any]] = []
+        for item in calculated_items:
+            matched = await self.search_one(
+                item.get("query", ""),
+                quantity=item.get("quantity", 1),
+                prefer_private_label=bool(item.get("prefer_private_label", False)),
+                max_price=max_price,
+                category=item.get("category"),
+                context=context,
+            )
+            if matched is not None:
+                products.append(matched)
         return products
+
+    async def fetch_promo_products(
+        self,
+        context: dict[str, str] | None,
+        max_price: float | None = None,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Returns in-stock promo products within budget, empty when unavailable."""
+        if context is None:
+            return []
+        client = SilpoClient.for_mock() if settings.MCP_MOCK_MODE else SilpoClient.for_real_server()
+        try:
+            async with client:
+                result = await client.get_products(
+                    context["branch_id"],
+                    context["delivery_type"],
+                    context["timeslot_start"],
+                    context["timeslot_end"],
+                    must_have_promotion=True,
+                    in_stock=True,
+                    to_price=max_price,
+                    limit=limit,
+                )
+                items = list(self._product_value(result, "items", default=[]) or [])
+        except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+            logger.debug("Silpo MCP promo products error: %s", exc)
+            return []
+        return [
+            {
+                **self._normalize_product(
+                    entry, str(self._product_value(entry, "title", "name", default="Акція")), 1, f"promo-{i}"
+                ),
+                "is_promo": True,
+                "category": "promo",
+            }
+            for i, entry in enumerate(items)
+        ]
+
+    async def fetch_similar(self, slug: str, context: dict[str, str] | None) -> list[dict[str, Any]]:
+        """Returns products similar to the given slug, empty on any failure."""
+        if context is None:
+            return []
+        client = SilpoClient.for_mock() if settings.MCP_MOCK_MODE else SilpoClient.for_real_server()
+        try:
+            async with client:
+                entries = await client.get_similar_products(context["branch_id"], slug, limit=5) or []
+        except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+            logger.debug("Silpo MCP similar error for '%s': %s", slug, exc)
+            return []
+        return [self._normalize_product(entry, slug, 1, f"sim-{i}") for i, entry in enumerate(entries)]
+
+    async def fetch_product_details(self, slug: str, context: dict[str, str] | None) -> dict[str, Any] | None:
+        """Returns card metadata (description, composition, nutrition) for a slug, None on failure."""
+        if context is None:
+            return None
+        client = SilpoClient.for_mock() if settings.MCP_MOCK_MODE else SilpoClient.for_real_server()
+        try:
+            async with client:
+                entry = await client.get_product_details(
+                    context["branch_id"],
+                    slug,
+                    context["delivery_type"],
+                    context["timeslot_start"],
+                    context["timeslot_end"],
+                )
+        except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+            logger.debug("Silpo MCP details error for '%s': %s", slug, exc)
+            return None
+        if entry is None:
+            return None
+        details = {
+            key: self._product_value(entry, key)
+            for key in ("description", "composition", "nutritional_value", "attributes")
+        }
+        details = {key: value for key, value in details.items() if value is not None}
+        return details or None
+
+    async def fetch_replacements(
+        self, ref_product: dict[str, Any], context: dict[str, str] | None
+    ) -> list[dict[str, Any]]:
+        """Returns replacement candidates for a reference product, empty on any failure."""
+        product_id = ref_product.get("productId") or ref_product.get("id")
+        company_id = ref_product.get("companyId") or ref_product.get("company_id")
+        if context is None or not product_id or not company_id:
+            return []
+        client = SilpoClient.for_mock() if settings.MCP_MOCK_MODE else SilpoClient.for_real_server()
+        try:
+            async with client:
+                entries = (
+                    await client.get_replacements(
+                        context["branch_id"], str(company_id), context["delivery_type"], [str(product_id)]
+                    )
+                    or []
+                )
+        except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+            logger.debug("Silpo MCP replacements error: %s", exc)
+            return []
+        products = []
+        for i, entry in enumerate(entries):
+            candidate = self._product_value(entry, "replacement", default=entry)
+            products.append(self._normalize_product(candidate, str(i), 1, f"repl-{i}"))
+        return products
+
+    async def fetch_categories(self, context: dict[str, str] | None) -> list[dict[str, Any]]:
+        """Returns catalog categories, empty on any failure."""
+        if context is None:
+            return []
+        client = SilpoClient.for_mock() if settings.MCP_MOCK_MODE else SilpoClient.for_real_server()
+        try:
+            async with client:
+                entries = await client.get_categories(context["branch_id"]) or []
+        except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+            logger.debug("Silpo MCP categories error: %s", exc)
+            return []
+        return [
+            {
+                "id": str(self._product_value(entry, "id", "category_id", default=i)),
+                "name": str(self._product_value(entry, "name", "title", default="")),
+            }
+            for i, entry in enumerate(entries)
+        ]
+
+    async def resolve_shopping_context(self, delivery_address: str | None) -> dict[str, str] | None:
+        """Resolves branch/delivery/slot context for catalog calls; canned context in mock mode."""
+        if settings.MCP_MOCK_MODE:
+            return dict(MOCK_SHOPPING_CONTEXT)
+        fulfillment = await self.resolve_fulfillment(delivery_address)
+        if fulfillment is None:
+            return None
+        return {
+            "branch_id": str(fulfillment["branch_id"]),
+            "delivery_type": str(fulfillment["delivery_type"]),
+            "timeslot_start": str(fulfillment["timeslot_start"]),
+            "timeslot_end": str(fulfillment["timeslot_end"]),
+        }
 
     @staticmethod
     def _extract_coords(source: Any) -> tuple[float, float] | None:
@@ -364,14 +543,7 @@ class MCPProductService:
                 )
                 chosen = options[0]
 
-                raw_slots = await client.call_tool(
-                    "silpo_get_time_slots",
-                    {
-                        "branchId": chosen["branch_id"],
-                        "deliveryType": chosen["type"],
-                        "deliveryTypes": [chosen["type"]],
-                    },
-                )
+                raw_slots = await client.get_time_slots(chosen["branch_id"], delivery_types=[chosen["type"]])
                 slots = [
                     slot for slot in (self._normalize_slot(entry) for entry in raw_slots or []) if slot is not None
                 ]
@@ -426,9 +598,34 @@ class MCPProductService:
             cart_id, _ = await self._get_or_create_cart_id(client, fulfillment)
             return cart_id
 
+    @staticmethod
+    def _validate_cart_item(product: dict[str, Any]) -> str | None:
+        """Returns the rejection reason when the product cannot be written to a live cart."""
+        product_id = product.get("productId") or product.get("id")
+        if not product_id:
+            return "missing productId"
+        try:
+            uuid.UUID(str(product_id))
+        except (ValueError, AttributeError, TypeError):
+            return f"productId {product_id!r} is not a UUID (static fallback, not a live catalog product)"
+        for key in ("companyId", "branchId"):
+            if not product.get(key):
+                return f"missing {key}"
+        return None
+
     async def create_cart(self, products: list[dict[str, Any]], fulfillment: dict[str, Any] | None = None) -> str:
         if not products:
             raise ValueError("Cannot create a cart without products")
+
+        invalid = [
+            f"{product.get('title', product.get('productId') or product.get('id'))}: {reason}"
+            for product in products
+            if (reason := self._validate_cart_item(product)) is not None
+        ]
+        if invalid:
+            raise ValueError(
+                f"Cannot write cart: {len(invalid)} product(s) are not real Silpo products: {'; '.join(invalid)}"
+            )
 
         client = SilpoClient.for_real_server()
         items: list[dict[str, Any]] = []
@@ -449,7 +646,7 @@ class MCPProductService:
             cart_id, existing_items = await self._get_or_create_cart_id(client, fulfillment)
             if existing_items:
                 await client.clear_cart(cart_id)
-            result = await client.add_or_update_cart_products(cart_id, items=items)
+            result = await client.add_or_update_cart_products(cart_id, products=items)
 
         share_url = self._product_value(result, "share_url", "shareUrl", "url")
         return share_url or f"https://silpo.ua/cart/{cart_id}"

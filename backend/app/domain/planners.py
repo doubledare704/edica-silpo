@@ -1,8 +1,37 @@
 import math
-from typing import Any, ClassVar, Protocol
+from typing import Any, ClassVar, Literal, Protocol
 
 from ..enums import IntentEnum
 from ..state import SilpoAgentState
+
+BudgetMode = Literal["hard_fill", "soft"]
+
+
+def _score_candidate(
+    candidate: dict[str, Any],
+    remaining: float,
+    *,
+    hard: bool,
+    private_label_bonus: float,
+    promo_bonus: float,
+) -> float:
+    try:
+        price = float(candidate.get("price", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        price = 0.0
+    try:
+        quantity = int(candidate.get("quantity", 1) or 1)
+    except (TypeError, ValueError):
+        quantity = 1
+    line_total = price * quantity
+    if hard and line_total > remaining:
+        return -1.0
+    score = remaining - line_total if hard else 1000.0 - line_total
+    if bool(candidate.get("is_private_label", False)):
+        score += private_label_bonus
+    if bool(candidate.get("is_promo", False) or candidate.get("on_sale", False)):
+        score += promo_bonus
+    return score
 
 
 class DomainPlanner(Protocol):
@@ -12,6 +41,26 @@ class DomainPlanner(Protocol):
 
     def format_summary(self, total_price: float, state: SilpoAgentState) -> str:
         """Formats Ukrainian summary text for the created cart."""
+        ...
+
+    def budget_mode(self) -> BudgetMode:
+        """Hard ceiling with filler items vs soft taste-first hint."""
+        ...
+
+    def tool_allowlist(self) -> list[str]:
+        """Silpo tool names the picker may call for this intent."""
+        ...
+
+    def min_coverage(self) -> list[str]:
+        """Required categories that mark requirements as met."""
+        ...
+
+    def filler_queries(self) -> list[str]:
+        """Cheap complementary queries used to fill leftover budget."""
+        ...
+
+    def score(self, candidate: dict[str, Any], remaining: float) -> float:
+        """Ranks a priced candidate; negative means reject under hard ceiling."""
         ...
 
 
@@ -85,6 +134,21 @@ class PartyDomainPlanner:
         people_count = state.get("people_count") or 1
         return f"Я зібрала кошик для пікніка на {people_count} осіб на суму {int(total_price)} гривень."
 
+    def budget_mode(self) -> BudgetMode:
+        return "hard_fill"
+
+    def tool_allowlist(self) -> list[str]:
+        return ["search_products", "get_promotions", "get_replacements", "get_categories"]
+
+    def min_coverage(self) -> list[str]:
+        return ["meat", "vegetables", "drinks"]
+
+    def filler_queries(self) -> list[str]:
+        return ["Вода питна Премія", "Хліб український", "Ціна тижня акційні"]
+
+    def score(self, candidate: dict[str, Any], remaining: float) -> float:
+        return _score_candidate(candidate, remaining, hard=True, private_label_bonus=10.0, promo_bonus=5.0)
+
 
 class BudgetDomainPlanner:
     def plan(self, state: SilpoAgentState) -> list[dict[str, Any]]:
@@ -112,6 +176,21 @@ class BudgetDomainPlanner:
     def format_summary(self, total_price: float, state: SilpoAgentState) -> str:
         products_count = len(state.get("mcp_products", []))
         return f"Я підібрала економний кошик із {products_count} товарів на суму {int(total_price)} гривень."
+
+    def budget_mode(self) -> BudgetMode:
+        return "hard_fill"
+
+    def tool_allowlist(self) -> list[str]:
+        return ["search_products", "get_promotions", "get_replacements"]
+
+    def min_coverage(self) -> list[str]:
+        return ["dairy", "bakery", "grocery"]
+
+    def filler_queries(self) -> list[str]:
+        return ["Вода питна Премія", "Крупа Премія"]
+
+    def score(self, candidate: dict[str, Any], remaining: float) -> float:
+        return _score_candidate(candidate, remaining, hard=True, private_label_bonus=15.0, promo_bonus=8.0)
 
 
 class OfficeDomainPlanner:
@@ -155,6 +234,21 @@ class OfficeDomainPlanner:
     def format_summary(self, total_price: float, state: SilpoAgentState) -> str:
         products_count = len(state.get("mcp_products", []))
         return f"Я сформувала офісний кошик із {products_count} товарів на суму {int(total_price)} гривень."
+
+    def budget_mode(self) -> BudgetMode:
+        return "hard_fill"
+
+    def tool_allowlist(self) -> list[str]:
+        return ["search_products", "get_promotions", "get_categories"]
+
+    def min_coverage(self) -> list[str]:
+        return ["coffee", "tea", "snacks", "drinks"]
+
+    def filler_queries(self) -> list[str]:
+        return ["Вода питна негазована Премія", "Печиво Премія"]
+
+    def score(self, candidate: dict[str, Any], remaining: float) -> float:
+        return _score_candidate(candidate, remaining, hard=True, private_label_bonus=12.0, promo_bonus=5.0)
 
 
 class GourmetDomainPlanner:
@@ -225,6 +319,21 @@ class GourmetDomainPlanner:
         products_count = len(state.get("mcp_products", []))
         return f"Я підібрала гурманський кошик із {products_count} сирів та вин на суму {int(total_price)} гривень."
 
+    def budget_mode(self) -> BudgetMode:
+        return "soft"
+
+    def tool_allowlist(self) -> list[str]:
+        return ["search_products", "get_product_details", "get_similar_products", "get_categories"]
+
+    def min_coverage(self) -> list[str]:
+        return ["cheese", "wine"]
+
+    def filler_queries(self) -> list[str]:
+        return []
+
+    def score(self, candidate: dict[str, Any], remaining: float) -> float:
+        return _score_candidate(candidate, remaining, hard=False, private_label_bonus=0.0, promo_bonus=2.0)
+
 
 class GeneralDomainPlanner:
     def plan(self, state: SilpoAgentState) -> list[dict[str, Any]]:
@@ -243,6 +352,21 @@ class GeneralDomainPlanner:
     def format_summary(self, total_price: float, state: SilpoAgentState) -> str:
         products_count = len(state.get("mcp_products", []))
         return f"Я сформувала кошик із {products_count} товарів на суму {int(total_price)} гривень."
+
+    def budget_mode(self) -> BudgetMode:
+        return "hard_fill"
+
+    def tool_allowlist(self) -> list[str]:
+        return ["search_products"]
+
+    def min_coverage(self) -> list[str]:
+        return []
+
+    def filler_queries(self) -> list[str]:
+        return []
+
+    def score(self, candidate: dict[str, Any], remaining: float) -> float:
+        return _score_candidate(candidate, remaining, hard=True, private_label_bonus=5.0, promo_bonus=3.0)
 
 
 _PLANNERS: dict[IntentEnum, DomainPlanner] = {

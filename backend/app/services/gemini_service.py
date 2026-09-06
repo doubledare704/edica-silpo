@@ -87,6 +87,43 @@ async def transcribe_audio(audio_bytes: bytes, mime: str = "audio/webm") -> str:
         return _MOCK_TRANSCRIPTION
 
 
+async def choose_picker_candidate(
+    candidates: list[dict[str, Any]],
+    remaining: float,
+    goal: str,
+) -> int | None:
+    """Asks Gemini to choose one candidate index, or None to fall back to greedy scoring."""
+    if settings.GEMINI_MOCK_MODE or not settings.GEMINI_API_KEY or not candidates:
+        return None
+    try:
+        lines = [
+            f"{i}. {c.get('title', '?')} — {c.get('price', '?')} грн x{c.get('quantity', 1)}"
+            for i, c in enumerate(candidates)
+        ]
+        prompt = (
+            "Ти асистент Silpo Smart Shopper. Ціль: " + goal + ". "
+            f"Залишок бюджету: {remaining:.2f} грн. Обери один індекс зі списку, "
+            'який найкраще відповідає цілі. Відповідай JSON строго {"index": N}.\n' + "\n".join(lines)
+        )
+        response = await _agenerate(
+            model=settings.GEMINI_MODEL,
+            contents=[prompt],
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                response_mime_type="application/json",
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            ),
+        )
+        text = response.text
+        if not text or not text.strip():
+            return None
+        index = int(json.loads(_extract_json_object(text)).get("index", -1))
+        return index if 0 <= index < len(candidates) else None
+    except Exception as exc:  # noqa: BLE001 - advisor failure must fall back to greedy
+        logger.debug("Gemini picker advisor failed, using greedy fallback: %s", exc)
+        return None
+
+
 async def parse_intent_multimodal(
     user_text: str | None,
     audio_bytes: bytes | None,

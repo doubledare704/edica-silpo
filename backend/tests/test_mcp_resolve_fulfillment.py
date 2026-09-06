@@ -50,8 +50,8 @@ class FakeFulfillmentClient:
     async def get_available_delivery_types(self, **kwargs):
         return self._delivery_types
 
-    async def call_tool(self, name, args):
-        assert name == "silpo_get_time_slots"
+    async def get_time_slots(self, branch_id, **kwargs):
+        assert branch_id == "bran-1" or branch_id.startswith("bran-")
         return self._slots
 
 

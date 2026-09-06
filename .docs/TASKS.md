@@ -3,8 +3,8 @@
 ## Current Architecture
 
 ```text
-START -> stt -> parse_intent -> plan_domain_logic -> mcp_fetch
-       -> check_constraints -- budget retry --> plan_domain_logic
+START -> stt -> parse_intent -> plan_domain_logic -> picker
+       -> check_constraints -- exceeded/unmet --> picker
        -> create_cart -> tts -> END
 ```
 
@@ -27,6 +27,9 @@ START -> stt -> parse_intent -> plan_domain_logic -> mcp_fetch
 - Explicit LangGraph topology, budget retry routing, `MemorySaver`, and truthful SSE.
 - Temporary ReAct/create-agent experiment removed from production and dependencies.
 - Backend and frontend regression coverage.
+- Fixed live cart write: bypass stale `add_or_update_cart_products` SDK wrapper, send `products` array via `call_tool` (server rejects `items` with MCP -32602).
+- Migrated to `silpo-py-mcp>=0.3.0` context-first API: `shopping_context` in state, batch search, server-side promo/price filters, slug-based details/similar, typed slots and cart writes.
+- Cart write validates items (UUID productId + companyId/branchId) before touching the live cart, so static-fallback SKUs fail fast instead of wiping the cart and falling back to a mock URL.
 
 ## Configuration
 
@@ -48,5 +51,8 @@ npm run test:run --prefix frontend
 
 ## Open Work
 
+- [x] Iterative picker phase 1: extend `SilpoAgentState` (remaining_budget, unfulfilled_requests, is_requirements_met, picker_trace) + per-intent picker policy in planners.
+- [x] Iterative picker phase 2: picker service ReAct loop + node with full Silpo toolset.
+- [x] Iterative picker phase 3: check_constraints fill/exit routing + SSE tool events.
 - Run gated live Gemini/MCP smoke tests with real credentials.
 - Keep `.docs/LANGRAPH_DISCOVERY.md` as historical reference only; it is not the active architecture contract.

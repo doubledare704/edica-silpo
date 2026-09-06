@@ -75,8 +75,8 @@ async def test_create_cart_node_updates_real_cart(monkeypatch) -> None:
         async def clear_cart(self, cart_id: str):
             self.cleared_cart_ids.append(cart_id)
 
-        async def add_or_update_cart_products(self, cart_id: str, items: list[dict[str, object]]):
-            self.updated_cart = (cart_id, items)
+        async def add_or_update_cart_products(self, cart_id: str, products: list[dict[str, object]]):
+            self.updated_cart = (cart_id, products)
             return SimpleNamespace(share_url="https://silpo.ua/cart/share/cart-123")
 
     client = FakeClient()
@@ -89,8 +89,8 @@ async def test_create_cart_node_updates_real_cart(monkeypatch) -> None:
         "total_price": 120.0,
         "mcp_products": [
             {
-                "id": "product-1",
-                "productId": "product-1",
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "productId": "123e4567-e89b-12d3-a456-426614174000",
                 "companyId": "company-1",
                 "branchId": "branch-1",
                 "quantity": 2,
@@ -104,7 +104,14 @@ async def test_create_cart_node_updates_real_cart(monkeypatch) -> None:
     assert client.cleared_cart_ids == ["cart-123"]
     assert client.updated_cart == (
         "cart-123",
-        [{"productId": "product-1", "companyId": "company-1", "branchId": "branch-1", "quantity": 2}],
+        [
+            {
+                "productId": "123e4567-e89b-12d3-a456-426614174000",
+                "companyId": "company-1",
+                "branchId": "branch-1",
+                "quantity": 2,
+            }
+        ],
     )
 
 
@@ -136,23 +143,25 @@ async def test_create_cart_node_creates_missing_cart_from_saved_address(monkeypa
         async def get_available_delivery_types(self, **kwargs):
             return [SimpleNamespace(type="SelfPickup", branch_id="bran-1", min_order=0.0)]
 
-        async def call_tool(self, name, args):
+        async def get_time_slots(self, branch_id, **kwargs):
+            assert branch_id == "bran-1"
             return [
-                {
-                    "deliveryType": "SelfPickup",
-                    "branchId": "bran-1",
-                    "startsAt": "2026-09-06T10:00:00",
-                    "endsAt": "2026-09-06T12:00:00",
-                    "isAvailable": True,
-                }
+                SimpleNamespace(
+                    startsAt="2026-09-06T10:00:00",
+                    endsAt="2026-09-06T12:00:00",
+                    isAvailable=True,
+                )
             ]
+
+        async def call_tool(self, name, args):
+            raise AssertionError(f"unexpected call_tool: {name}")
 
         async def create_shopping_cart(self, **kwargs):
             self.created_kwargs = kwargs
             return SimpleNamespace(success=True, shopping_cart_id="cart-new")
 
-        async def add_or_update_cart_products(self, cart_id: str, items: list[dict[str, object]]):
-            self.updated_cart = (cart_id, items)
+        async def add_or_update_cart_products(self, cart_id: str, products: list[dict[str, object]]):
+            self.updated_cart = (cart_id, products)
             return SimpleNamespace(share_url="https://silpo.ua/cart/share/cart-new")
 
     client = FakeClient()
@@ -164,7 +173,15 @@ async def test_create_cart_node_creates_missing_cart_from_saved_address(monkeypa
             "intent": IntentEnum.PARTY,
             "people_count": 2,
             "total_price": 120.0,
-            "mcp_products": [{"id": "product-1", "productId": "product-1", "quantity": 1}],
+            "mcp_products": [
+                {
+                    "id": "123e4567-e89b-12d3-a456-426614174000",
+                    "productId": "123e4567-e89b-12d3-a456-426614174000",
+                    "companyId": "company-1",
+                    "branchId": "branch-1",
+                    "quantity": 1,
+                }
+            ],
         }
     )
 
@@ -227,3 +244,80 @@ async def test_create_cart_node_keeps_summary_when_real_cart_fails(monkeypatch) 
 
     assert result["cart_url"].startswith("https://silpo.ua/cart/share/mock_")
     assert result["summary_message"]
+
+
+@pytest.mark.asyncio
+async def test_create_cart_rejects_fallback_skus_without_touching_cart(monkeypatch) -> None:
+    class GuardClient:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def __aenter__(self):
+            self.calls.append("connect")
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+        def __getattr__(self, name: str):
+            async def _boom(*args: object, **kwargs: object):
+                self.calls.append(name)
+                raise AssertionError(f"cart must not be touched, called {name}")
+
+            return _boom
+
+    client = GuardClient()
+    monkeypatch.setattr(mcp_service.settings, "MCP_MOCK_MODE", False)
+    monkeypatch.setattr(mcp_service.SilpoClient, "for_real_server", lambda: client)
+
+    with pytest.raises(ValueError, match="not real Silpo products"):
+        await mcp_service.MCPProductService().create_cart(
+            [
+                {"id": "sku-1", "productId": "sku-1", "title": "Ошийник свинячий", "price": 240.0, "quantity": 1},
+                {"id": "sku-2", "title": "Без productId", "price": 10.0, "quantity": 1},
+            ]
+        )
+    assert client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_create_cart_accepts_real_uuid_products(monkeypatch) -> None:
+    seen: dict[str, object] = {}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+        async def get_cart(self):
+            return SimpleNamespace(id="cart-123", items=[])
+
+        async def add_or_update_cart_products(self, cart_id: str, products: list[dict[str, object]]):
+            seen["products"] = products
+            return SimpleNamespace(share_url="https://silpo.ua/cart/share/cart-123")
+
+    monkeypatch.setattr(mcp_service.settings, "MCP_MOCK_MODE", False)
+    monkeypatch.setattr(mcp_service.SilpoClient, "for_real_server", FakeClient)
+
+    url = await mcp_service.MCPProductService().create_cart(
+        [
+            {
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "productId": "123e4567-e89b-12d3-a456-426614174000",
+                "companyId": "company-1",
+                "branchId": "branch-1",
+                "quantity": 2,
+            }
+        ]
+    )
+    assert url == "https://silpo.ua/cart/share/cart-123"
+    assert seen["products"] == [
+        {
+            "productId": "123e4567-e89b-12d3-a456-426614174000",
+            "companyId": "company-1",
+            "branchId": "branch-1",
+            "quantity": 2,
+        }
+    ]

@@ -66,35 +66,53 @@ async def test_mcp_fetch_real_mode_selects_private_label_and_preserves_identifie
         async def __aexit__(self, *args) -> None:
             return None
 
-        async def get_products(self, query: str, **kwargs):
-            self.queries.append((query, kwargs))
+        async def find_products_batch(
+            self,
+            branch_id: str,
+            delivery_type: str,
+            timeslot_start: str,
+            timeslot_end: str,
+            queries: list[str],
+            limit: int | None = None,
+        ):
+            self.queries.append((queries[0], {"limit": limit}))
             return SimpleNamespace(
-                items=[
-                    SimpleNamespace(
-                        id="regular-1",
-                        title="Regular product",
-                        price=120.0,
-                        is_private_label=False,
-                        company_id="company-regular",
-                        branch_id="branch-regular",
-                    ),
-                    SimpleNamespace(
-                        id="private-1",
-                        title="Private label product",
-                        price=90.0,
-                        is_private_label=True,
-                        company_id="company-private",
-                        branch_id="branch-private",
-                    ),
-                ]
+                results={
+                    queries[0]: [
+                        SimpleNamespace(
+                            product_id="regular-1",
+                            title="Regular product",
+                            price=120.0,
+                            is_private_label=False,
+                            company_id="company-regular",
+                            branch_id="branch-regular",
+                        ),
+                        SimpleNamespace(
+                            product_id="private-1",
+                            title="Private label product",
+                            price=90.0,
+                            slug="slug-private-1",
+                            is_private_label=True,
+                            company_id="company-private",
+                            branch_id="branch-private",
+                        ),
+                    ]
+                },
+                unmatched=[],
             )
 
     client = FakeClient()
     monkeypatch.setattr(mcp_service.settings, "MCP_MOCK_MODE", False)
     monkeypatch.setattr(mcp_service.SilpoClient, "for_real_server", lambda: client)
 
+    context = {
+        "branch_id": "bran-1",
+        "delivery_type": "SelfPickup",
+        "timeslot_start": "2026-09-06T10:00:00",
+        "timeslot_end": "2026-09-06T12:00:00",
+    }
     products = await mcp_service.MCPProductService().fetch_products(
-        [{"query": "кава", "quantity": 2, "prefer_private_label": True}]
+        [{"query": "кава", "quantity": 2, "prefer_private_label": True}], context=context
     )
 
     assert products == [
@@ -106,10 +124,11 @@ async def test_mcp_fetch_real_mode_selects_private_label_and_preserves_identifie
             "is_private_label": True,
             "companyId": "company-private",
             "branchId": "branch-private",
+            "slug": "slug-private-1",
             "quantity": 2,
         }
     ]
-    assert client.queries == [("кава", {"on_sale": True, "limit": 5})]
+    assert client.queries == [("кава", {"limit": 5})]
 
 
 @pytest.mark.asyncio

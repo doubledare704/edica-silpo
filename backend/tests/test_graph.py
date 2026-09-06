@@ -44,7 +44,7 @@ async def test_silpo_agent_graph_nodes_registered() -> None:
         NodeName.STT,
         NodeName.PARSE_INTENT,
         NodeName.PLAN_DOMAIN_LOGIC,
-        NodeName.MCP_FETCH,
+        NodeName.PICKER,
         NodeName.CHECK_CONSTRAINTS,
         NodeName.CREATE_CART,
         NodeName.TTS,
@@ -71,9 +71,7 @@ async def test_silpo_agent_graph_ends_unsupported_request_before_planning() -> N
 
 
 def test_route_constraints_loops_only_while_attempts_remain() -> None:
-    assert route_constraints({"is_budget_exceeded": True, "attempts": 1, "max_attempts": 3}) == (
-        NodeName.PLAN_DOMAIN_LOGIC.value
-    )
+    assert route_constraints({"is_budget_exceeded": True, "attempts": 1, "max_attempts": 3}) == (NodeName.PICKER.value)
     assert route_constraints({"is_budget_exceeded": True, "attempts": 3, "max_attempts": 3}) == (
         NodeName.CREATE_CART.value
     )

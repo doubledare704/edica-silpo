@@ -70,6 +70,12 @@ async def _sse_generator(
         "attempts": 0,
         "max_attempts": 3,
         "is_budget_exceeded": False,
+        "remaining_budget": 0.0,
+        "unfulfilled_requests": [],
+        "is_requirements_met": False,
+        "picker_trace": [],
+        "picker_accepted": 0,
+        "shopping_context": None,
         "cart_url": None,
         "summary_message": "",
         "audio_url": None,
@@ -96,6 +102,25 @@ async def _sse_generator(
                 )
                 yield ServerSentEvent(event=SSEEvent.TOOL_END, data={"tool": "silpo-py-mcp", "status": "completed"})
 
+            # Emit tool events for each picker tool call
+            if node_name == NodeName.PICKER:
+                trace = accumulated_state.get("picker_trace", [])
+                if isinstance(trace, list):
+                    for entry in trace:
+                        if not isinstance(entry, dict):
+                            continue
+                        yield ServerSentEvent(
+                            event=SSEEvent.TOOL_START,
+                            data={"tool": entry.get("tool", "silpo-py-mcp"), "details": {"query": entry.get("query")}},
+                        )
+                        yield ServerSentEvent(
+                            event=SSEEvent.TOOL_END,
+                            data={
+                                "tool": entry.get("tool", "silpo-py-mcp"),
+                                "status": entry.get("status", "completed"),
+                            },
+                        )
+
     # Emit final node_complete event
     final_payload = {
         "node": (
@@ -106,6 +131,8 @@ async def _sse_generator(
         "intent": accumulated_state.get("intent"),
         "total_price": accumulated_state.get("total_price", 0.0),
         "is_budget_exceeded": accumulated_state.get("is_budget_exceeded", False),
+        "remaining_budget": accumulated_state.get("remaining_budget", 0.0),
+        "is_requirements_met": accumulated_state.get("is_requirements_met", False),
         "cart_url": accumulated_state.get("cart_url"),
         "summary": accumulated_state.get("summary_message"),
         "audio_url": accumulated_state.get("audio_url"),

@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     TTS_PROVIDER: Literal["respeecher", "gemini"] = "respeecher"
     GEMINI_MOCK_MODE: bool = False
     LOG_LEVEL: str = "INFO"
+    MAX_PICKER_STEPS: int = 8
+    MIN_ITEM_PRICE_FLOOR: float = 15.0
 
 
 settings = Settings()
