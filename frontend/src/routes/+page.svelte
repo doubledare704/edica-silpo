@@ -3,6 +3,7 @@
 	import AgentTimeline from '$lib/components/AgentTimeline.svelte';
 	import CartCard from '$lib/components/CartCard.svelte';
 	import SuccessBanner from '$lib/components/SuccessBanner.svelte';
+	import { selectedStore } from '$lib/selectedStore.svelte';
 	import type { CartItem } from '$lib/cart';
 
 	interface CartPayload {
@@ -18,6 +19,7 @@
 		userText: string;
 		audioBase64: string;
 		threadId: string;
+		deliveryAddress: string;
 	}
 
 	const SUGGESTIONS = [
@@ -35,6 +37,7 @@
 		currentRequest = {
 			...data,
 			threadId: crypto.randomUUID(),
+			deliveryAddress: selectedStore.address,
 		};
 	}
 

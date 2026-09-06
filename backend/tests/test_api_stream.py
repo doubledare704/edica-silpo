@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from app.api.agent import _serialize_cart_items
 from app.enums import SSEEvent
 from app.main import app
 from httpx import ASGITransport, AsyncClient
@@ -55,6 +56,44 @@ async def test_agent_stream_sse_endpoint() -> None:
             assert "audio_url" in last_data
             assert last_data["cart_url"].startswith("https://silpo.ua/cart")
             assert last_data["audio_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_agent_stream_accepts_delivery_address() -> None:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        payload = {
+            "user_text": "Збери кошик для пікніка на 6 людей до 2500 грн",
+            "thread_id": "test-session-address",
+            "delivery_address": "Київ, вул. Мишуги Олександра, 4",
+        }
+        async with client.stream("POST", "/api/agent/stream", json=payload) as response:
+            assert response.status_code == 200
+            lines = []
+            async for line in response.aiter_lines():
+                if line.strip():
+                    lines.append(line.strip())
+
+            data_lines = [line.replace("data: ", "") for line in lines if line.startswith("data: ")]
+            last_data = json.loads(data_lines[-1])
+            assert last_data["cart_url"].startswith("https://silpo.ua/cart")
+
+
+def test_serialize_cart_items_carries_image_url() -> None:
+    products = [
+        {
+            "id": "sku-1",
+            "title": "Молоко Премія",
+            "price": 36.9,
+            "quantity": 2,
+            "is_private_label": True,
+            "image_url": "https://images.silpo.ua/milk.jpg",
+        },
+        {"id": "sku-2", "title": "Багет", "price": 28.5, "quantity": 1, "is_private_label": False},
+    ]
+    items = _serialize_cart_items(products)
+    assert items[0]["image_url"] == "https://images.silpo.ua/milk.jpg"
+    assert items[1]["image_url"] is None
 
 
 @pytest.mark.asyncio

@@ -151,27 +151,39 @@ class PartyDomainPlanner:
 
 
 class BudgetDomainPlanner:
+    """Weekly survival planner: calorie-dense staples first, quantities for 7 days."""
+
+    # (query, category, weekly units per person), ordered by kcal-per-hryvnia priority
+    _WEEKLY_STAPLES: ClassVar[list[tuple[str, str, float]]] = [
+        ("Олія соняшникова", "grocery", 0.5),
+        ("Крупа гречана", "grocery", 0.5),
+        ("Макарони", "grocery", 0.5),
+        ("Картопля", "vegetables", 2.0),
+        ("Яйця", "grocery", 1.0),
+        ("Молоко", "dairy", 2.0),
+        ("Хліб", "bakery", 2.0),
+        ("Курка", "meat", 1.0),
+    ]
+
     def plan(self, state: SilpoAgentState) -> list[dict[str, Any]]:
-        return [
-            {
-                "query": "Молоко Премія 2.5%",
-                "category": "dairy",
-                "quantity": 1,
-                "prefer_private_label": True,
-            },
-            {
-                "query": "Хліб український нарізний",
-                "category": "bakery",
-                "quantity": 1,
-                "prefer_private_label": True,
-            },
-            {
-                "query": "Яйця курячі С1, 10 шт",
-                "category": "grocery",
-                "quantity": 1,
-                "prefer_private_label": True,
-            },
-        ]
+        people_count = state.get("people_count") or 2
+        is_retry = state.get("is_budget_exceeded", False)
+        attempts = state.get("attempts", 0)
+
+        items: list[dict[str, Any]] = []
+        for query, category, weekly_rate in self._WEEKLY_STAPLES:
+            qty = max(1, math.ceil(people_count * weekly_rate))
+            if is_retry and attempts > 0:
+                qty = max(1, qty - attempts)
+            items.append(
+                {
+                    "query": query,
+                    "category": category,
+                    "quantity": qty,
+                    "prefer_private_label": True,
+                }
+            )
+        return items
 
     def format_summary(self, total_price: float, state: SilpoAgentState) -> str:
         products_count = len(state.get("mcp_products", []))
@@ -184,10 +196,10 @@ class BudgetDomainPlanner:
         return ["search_products", "get_promotions", "get_replacements"]
 
     def min_coverage(self) -> list[str]:
-        return ["dairy", "bakery", "grocery"]
+        return ["grocery", "dairy", "bakery", "meat"]
 
     def filler_queries(self) -> list[str]:
-        return ["Вода питна Премія", "Крупа Премія"]
+        return ["Цукор", "Чай", "Яблука", "Морква"]
 
     def score(self, candidate: dict[str, Any], remaining: float) -> float:
         return _score_candidate(candidate, remaining, hard=True, private_label_bonus=15.0, promo_bonus=8.0)

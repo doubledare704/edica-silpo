@@ -262,6 +262,102 @@ async def test_gourmet_soft_mode_accepts_over_explicit_budget() -> None:
 
 
 @pytest.mark.asyncio
+async def test_picker_retry_keeps_hits_and_retries_only_misses() -> None:
+    catalog = dict(_party_catalog())
+    del catalog["овочі для гриля премія"]
+    fake = FakeProductService(catalog)
+    service = PickerService(product_service=fake)
+    first = await service.run(_make_state(IntentEnum.PARTY, budget=5000.0, people_count=1))
+    assert first["unfulfilled_requests"] == ["Овочі для гриля Премія"]
+    before = len([c for c in fake.calls if c[0] == "search_one"])
+
+    retry_state = _make_state(
+        IntentEnum.PARTY,
+        budget=5000.0,
+        people_count=1,
+        attempts=1,
+        mcp_products=first["mcp_products"],
+        unfulfilled_requests=first["unfulfilled_requests"],
+    )
+    second = await service.run(retry_state)
+    retried = [c for c in fake.calls if c[0] == "search_one"][before:]
+    assert retried and all(query.split()[0] == "Овочі" for _, query in retried)
+    assert second["picker_accepted"] == first["picker_accepted"]
+    assert all(p in second["mcp_products"] for p in first["mcp_products"])
+
+
+@pytest.mark.asyncio
+async def test_picker_rebuilds_from_scratch_when_budget_exceeded() -> None:
+    fake = FakeProductService(_party_catalog())
+    service = PickerService(product_service=fake)
+    state = _make_state(
+        IntentEnum.PARTY,
+        budget=2000.0,
+        attempts=1,
+        is_budget_exceeded=True,
+        mcp_products=[{"id": "old", "title": "old", "price": 1.0, "quantity": 1, "category": "meat"}],
+        unfulfilled_requests=["Овочі для гриля Премія"],
+    )
+    result = await service.run(state)
+    assert all(p["id"] != "old" for p in result["mcp_products"])
+
+
+@pytest.mark.asyncio
+async def test_picker_retries_miss_with_simplified_query(monkeypatch) -> None:
+    from app.domain import picker as picker_module
+
+    class StubPlanner:
+        def plan(self, state):
+            return [
+                {
+                    "query": "Крекери до вина елітні",
+                    "category": "snacks",
+                    "quantity": 1,
+                    "prefer_private_label": False,
+                }
+            ]
+
+        def budget_mode(self):
+            return "hard_fill"
+
+        def tool_allowlist(self):
+            return ["search_products"]
+
+        def min_coverage(self):
+            return ["snacks"]
+
+        def filler_queries(self):
+            return []
+
+        def score(self, candidate, remaining):
+            return 1.0
+
+    catalog = {
+        "крекери": {
+            "id": "c1",
+            "productId": "c1",
+            "title": "Крекери",
+            "price": 30.0,
+            "is_private_label": False,
+            "category": "snacks",
+        }
+    }
+    monkeypatch.setattr(picker_module, "get_domain_planner", lambda intent: StubPlanner())
+    service = PickerService(product_service=FakeProductService(catalog))
+    result = await service.run(_make_state(IntentEnum.BUDGET, budget=500.0))
+    assert result["picker_accepted"] == 1
+    assert result["unfulfilled_requests"] == []
+
+
+@pytest.mark.asyncio
+async def test_picker_forwards_delivery_address_to_context_resolution() -> None:
+    fake = FakeProductService(_party_catalog())
+    service = PickerService(product_service=fake)
+    await service.run(_make_state(IntentEnum.PARTY, budget=2000.0, delivery_address="Київ, вул. Мишуги, 4"))
+    assert ("resolve_shopping_context", "Київ, вул. Мишуги, 4") in fake.calls
+
+
+@pytest.mark.asyncio
 async def test_picker_node_returns_tracking_fields(monkeypatch) -> None:
     from app.nodes import picker as picker_module
 

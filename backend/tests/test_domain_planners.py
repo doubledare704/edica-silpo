@@ -51,9 +51,30 @@ def test_budget_planner_plan_and_summary() -> None:
         total_price=28.5,
     )
     items = planner.plan(state)
-    assert len(items) == 3
+    assert len(items) >= 8
     summary = planner.format_summary(28.5, state)
     assert "економний кошик" in summary
+
+
+def test_budget_planner_weekly_quantities_scale_with_people() -> None:
+    planner = BudgetDomainPlanner()
+    solo = planner.plan(_make_state(IntentEnum.BUDGET, people_count=1))
+    family = planner.plan(_make_state(IntentEnum.BUDGET, people_count=4))
+    assert sum(i["quantity"] for i in family) > sum(i["quantity"] for i in solo)
+
+
+def test_budget_planner_defaults_to_family_without_people_count() -> None:
+    planner = BudgetDomainPlanner()
+    items = planner.plan(_make_state(IntentEnum.BUDGET, people_count=None))
+    assert sum(i["quantity"] for i in items) >= 8
+
+
+def test_budget_planner_covers_weekly_staple_categories() -> None:
+    planner = BudgetDomainPlanner()
+    items = planner.plan(_make_state(IntentEnum.BUDGET, people_count=2))
+    categories = {i["category"] for i in items}
+    assert {"grocery", "dairy", "bakery", "meat"} <= categories
+    assert all(i["prefer_private_label"] for i in items)
 
 
 # ── OFFICE ────────────────────────────────────────────────────────────────────

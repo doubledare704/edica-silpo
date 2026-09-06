@@ -48,6 +48,9 @@ def test_silpo_state_custom_fields_present() -> None:
         "picker_trace",
         "picker_accepted",
         "shopping_context",
+        "checkout_url",
+        "cart_validations",
+        "loyalty_hint",
     ]:
         assert field in SilpoAgentState.__annotations__, f"missing {field}"
 

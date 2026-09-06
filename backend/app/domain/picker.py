@@ -155,6 +155,20 @@ class PickerService:
         unfulfilled: list[str] = []
         steps = 0
 
+        # On retry without over-budget, keep verified picks and only re-attempt
+        # previous misses instead of re-searching everything identically.
+        if not state.get("is_budget_exceeded", False):
+            previous = list(state.get("mcp_products", []))
+            outstanding = set(state.get("unfulfilled_requests", []) or [])
+            if previous and outstanding:
+                seed = [item for item in seed if str(item.get("query", "")) in outstanding]
+                accepted = previous
+                if remaining != math.inf:
+                    previous_total = sum(
+                        float(p.get("price", 0.0) or 0.0) * int(p.get("quantity", 1) or 1) for p in previous
+                    )
+                    remaining = round(remaining - previous_total, 2)
+
         for item in seed:
             query = str(item.get("query", ""))
             quantity = int(item.get("quantity", 1) or 1)
@@ -168,6 +182,21 @@ class PickerService:
                 product = await self._products.search_one(
                     query, quantity, bool(item.get("prefer_private_label", False)), ceiling(), category, context
                 )
+                if product is None:
+                    simplified = query.split()[0] if query.split() else query
+                    if simplified.lower() != query.lower():
+                        product = await self._products.search_one(
+                            simplified, quantity, False, ceiling(), category, context
+                        )
+                        if product is not None:
+                            trace.append(
+                                {
+                                    "tool": "search_products",
+                                    "query": simplified,
+                                    "status": "simplified",
+                                    "product_id": product.get("id"),
+                                }
+                            )
             if product is None:
                 product = await self._substitute(query, quantity, ceiling(), category, allowlist, trace, context)
             if product is None:

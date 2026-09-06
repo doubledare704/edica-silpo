@@ -14,7 +14,7 @@ CTX = {
 }
 
 
-def _item(price: float, pid: str, *, private: bool = False):
+def _item(price: float, pid: str, *, private: bool = False, image_url: str | None = None):
     return SimpleNamespace(
         product_id=pid,
         productId=pid,
@@ -25,6 +25,8 @@ def _item(price: float, pid: str, *, private: bool = False):
         isPrivateLabel=private,
         company_id="c1",
         branch_id="b1",
+        image_url=image_url,
+        imageUrl=image_url,
     )
 
 
@@ -89,6 +91,15 @@ async def test_search_one_uses_batch_search_with_context(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_search_one_preserves_image_url(monkeypatch) -> None:
+    client = FakeClient([_item(40.0, "img-1", image_url="https://images.silpo.ua/milk.jpg")])
+    _patch(monkeypatch, client)
+    result = await MCPProductService().search_one("milk", 1, False, None, None, CTX)
+    assert result is not None
+    assert result["image_url"] == "https://images.silpo.ua/milk.jpg"
+
+
+@pytest.mark.asyncio
 async def test_search_one_returns_none_when_nothing_fits(monkeypatch) -> None:
     client = FakeClient([_item(500.0, "exp-1")])
     _patch(monkeypatch, client)
@@ -102,6 +113,19 @@ async def test_search_one_without_context_uses_static_fallback() -> None:
     assert result is not None
     assert result["quantity"] == 1
     assert await service.search_one("unknown-xyz-item", 1, False, 10.0, None, None) is None
+
+
+@pytest.mark.asyncio
+async def test_search_one_never_fabricates_with_live_context(monkeypatch) -> None:
+    class EmptyClient(FakeClient):
+        async def find_products_batch(self, *args, **kwargs):
+            self.calls.append(("find_products_batch", {}))
+            return SimpleNamespace(results={}, unmatched=["Вино біле сухе El Maestro"])
+
+    _patch(monkeypatch, EmptyClient([]))
+    service = MCPProductService()
+    assert await service.search_one("Вино біле сухе El Maestro", 1, False, None, "wine", CTX) is None
+    assert await service.search_one("Крекери до вина", 1, False, 1000.0, "crackers", CTX) is None
 
 
 @pytest.mark.asyncio
@@ -168,7 +192,8 @@ async def test_picker_wrappers_fail_soft(monkeypatch) -> None:
 
     _patch(monkeypatch, ExplodingClient([]))
     service = MCPProductService()
-    assert await service.search_one("молоко", 1, False, None, None, CTX) is not None  # static fallback
+    assert await service.search_one("молоко", 1, False, None, None, None) is not None  # static fallback
+    assert await service.search_one("молоко", 1, False, None, None, CTX) is None  # honest miss, no fabrication
     assert await service.fetch_promo_products(CTX, None) == []
     assert await service.fetch_similar("x", CTX) == []
     assert await service.fetch_product_details("x", CTX) is None

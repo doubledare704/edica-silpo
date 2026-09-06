@@ -30,6 +30,12 @@ START -> stt -> parse_intent -> plan_domain_logic -> picker
 - Fixed live cart write: bypass stale `add_or_update_cart_products` SDK wrapper, send `products` array via `call_tool` (server rejects `items` with MCP -32602).
 - Migrated to `silpo-py-mcp>=0.3.0` context-first API: `shopping_context` in state, batch search, server-side promo/price filters, slug-based details/similar, typed slots and cart writes.
 - Cart write validates items (UUID productId + companyId/branchId) before touching the live cart, so static-fallback SKUs fail fast instead of wiping the cart and falling back to a mock URL.
+- Live search never fabricates static-fallback products when a shopping context exists (real mode): misses stay misses and surface as `unfulfilled_requests`; the static catalog is demo/offline-only.
+- Stream request carries the frontend's selected store address (`delivery_address`) into agent state so picker context and cart fulfillment resolve against the user's chosen Silpo.
+- Official Silpo cart flow: cart-first context with slot revalidation, delivery update on change, upsert without clearing, post-write verify (validations/loyalty/checkout links); picker retries only previous misses.
+- Delivery update is best-effort (warn-and-continue) with shipments built from written items, so a rejected update never kills a valid cart write.
+- Weekly budget planner: 8 calorie-priority staples with 7-day quantities scaled by people; picker retries misses with simplified (first-word) queries.
+- Cart card bugfixes: live server `totalPrice=0` no longer clobbers the computed total (non-zero verified totals stay authoritative); `CartItemsPreview` uses unique per-render keys so duplicate SKUs no longer crash the `each` block and break the expand toggle; product `image_url` flows from MCP normalization through SSE `node_complete` into the preview tiles with emoji fallback.
 
 ## Configuration
 

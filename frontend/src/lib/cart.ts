@@ -5,6 +5,7 @@ export interface CartItem {
 	quantity: number;
 	is_private_label: boolean;
 	line_total: number;
+	image_url: string | null;
 }
 
 const EMOJI_RULES: Array<[RegExp, string]> = [
@@ -48,6 +49,7 @@ export function normalizeCartItems(raw: unknown): CartItem[] {
 		.map((entry) => {
 			const price = Number(entry['price'] ?? 0);
 			const quantity = Number(entry['quantity'] ?? 1);
+			const image = entry['image_url'];
 			return {
 				id: entry['id'] != null ? String(entry['id']) : null,
 				title: String(entry['title'] ?? ''),
@@ -55,7 +57,13 @@ export function normalizeCartItems(raw: unknown): CartItem[] {
 				quantity: Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1,
 				is_private_label: Boolean(entry['is_private_label']),
 				line_total: Number(entry['line_total'] ?? (Number.isFinite(price) ? price : 0)),
+				image_url: typeof image === 'string' && image.length > 0 ? image : null,
 			} satisfies CartItem;
 		})
 		.filter((item) => item.title.length > 0);
+}
+
+export function itemKey(item: CartItem, index: number): string {
+	const id = item.id ?? item.title;
+	return `${id}#${index}`;
 }

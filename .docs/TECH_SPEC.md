@@ -25,6 +25,9 @@ The 3.5 Flash Lite model is intentional: it provides lower availability and rate
   `picker_accepted` (items accepted by the last picker run, used as a routing progress guard),
   `shopping_context` (`branch_id`/`delivery_type`/`timeslot_start`/`timeslot_end` resolved once
   per session and reused by all catalog calls; `None` when unresolvable)
+- cart verify: `checkout_url` (official checkout link, preferred cart URL), `cart_validations`
+  (server `validations[]` from the post-write verify read), `loyalty_hint` (ask-don't-apply
+  bonus prompt when `bonusAvailable > 0`)
 - retry: `attempts`, `max_attempts`, `is_budget_exceeded`
 - output: `cart_url`, `summary_message`, `audio_url`
 - fulfillment: `delivery_address` (user-supplied address text), `fulfillment`
@@ -56,10 +59,11 @@ All graph nodes are async. `check_constraints` increments `attempts` exactly onc
 
 ## Picker loop
 
-`picker` is the shared iterative picking node. Each run reuses or resolves the
-`shopping_context` (mock mode uses a canned context; real mode resolves it via fulfillment:
-saved address → geocode → delivery type → time slot, and falls back to the static catalog
-when unresolvable), then seeds from the intent planner. Requires `silpo-py-mcp>=0.3.0`
+`picker` resolves `shopping_context` **cart-first** per the official Silpo flow
+(`get_cart` → `get_cart_by_id` → branch/delivery/slot, with slot revalidation via
+`get_time_slots`), falling back to the address flow only when no active cart exists.
+On retry without over-budget it keeps verified picks and re-attempts only
+`unfulfilled_requests` instead of re-searching everything. Requires `silpo-py-mcp>=0.3.0`
 (context-first API): text search goes through `find_products_batch`, promo fillers through
 `get_products(must_have_promotion=True, to_price=...)`, substitutes through slug-based
 `get_similar_products` / `get_product_details` and `get_replacements`, slots through typed
@@ -91,6 +95,13 @@ STT and intent parsing use `google-genai` through `client.aio`. Intent parsing r
 
 ### MCP and cart
 
+Official Silpo cart flow, one-to-one: `get_cart` → `get_cart_by_id` (branch/delivery/slot
+context, slot revalidated via `get_time_slots`) → `find_products_batch` → optional
+`update_shopping_cart` when delivery settings changed → `add_or_update_cart_products`
+(upsert, no clearing) → `get_cart_by_id` verify (`validations[]`, loyalty, checkout links).
+`cart_url` is the checkout web link when available. Bonus flow is ask-don't-apply:
+`loyalty_hint` surfaces `bonusAvailable`; applying stays a future explicit user action.
+
 `MCP_MOCK_MODE=true` uses local/mock behavior. With `MCP_MOCK_MODE=false`, `SilpoClient.for_real_server()` handles the live catalog and OAuth flow. Product normalization preserves `productId`, `companyId`, `branchId`, price, private-label status, and quantity. Cart creation clears a dirty cart before updating products and returns a share URL; failures use a fallback URL without losing the summary. When `get_cart` reports no active cart, `create_cart` resolves fulfillment (saved address → geocode → delivery type → time slot) and creates one via `silpo_create_shopping_cart`; without a saved or supplied address it keeps the fallback URL.
 
 ### TTS
@@ -110,7 +121,7 @@ Audio failures never prevent `summary_message` from returning. Speech text is Uk
 - `session_info`: thread ID
 - `thinking_step`: actual graph node and status
 - `tool_start` / `tool_end`: MCP activity (legacy `mcp_fetch` plus one pair per `picker_trace` entry)
-- `node_complete`: final intent, totals, cart URL, summary, and audio URL (plus `remaining_budget`, `is_requirements_met`)
+- `node_complete`: final intent, totals, cart URL, summary, and audio URL (plus `remaining_budget`, `is_requirements_met`, `checkout_url`, `loyalty_hint`, `cart_validations`)
 
 The endpoint accepts text or base64 audio/WebM input and preserves the existing frontend event names.
 

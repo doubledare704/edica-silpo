@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { itemEmoji, itemsCountLabel, type CartItem } from '$lib/cart';
+	import { itemEmoji, itemKey, itemsCountLabel, type CartItem } from '$lib/cart';
 
 	/**
 	 * CartItemsPreview — fast preview of picked items (Stitch: "Швидкий перегляд").
@@ -33,7 +33,7 @@
 		</h4>
 
 		<div class="flex gap-3 overflow-x-auto hide-scrollbar pt-2.5 pb-2 px-1">
-			{#each previewItems as item (item.id ?? item.title)}
+			{#each previewItems as item, index (itemKey(item, index))}
 				<div
 					class="relative flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl border border-app-border bg-surface-container-lowest p-2"
 				>
@@ -44,10 +44,20 @@
 						>
 					{/if}
 					<div
-						class="flex h-12 w-12 items-center justify-center rounded-lg bg-surface-container text-2xl"
+						class="flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg bg-surface-container text-2xl"
 						aria-hidden="true"
 					>
-						{itemEmoji(item.title)}
+						{#if item.image_url}
+							<img
+								src={item.image_url}
+								alt=""
+								loading="lazy"
+								class="h-full w-full object-cover"
+								onerror={() => {}}
+							/>
+						{:else}
+							{itemEmoji(item.title)}
+						{/if}
 					</div>
 					<span class="w-full truncate text-center text-[12px] leading-4 font-medium text-on-surface">
 						{item.title}
@@ -79,15 +89,19 @@
 
 		{#if expanded}
 			<ul data-testid="cart-items-full" class="mt-2 flex flex-col gap-2">
-				{#each items as item (item.id ?? item.title)}
+				{#each items as item, index (itemKey(item, index))}
 					<li
 						class="flex items-center gap-3 rounded-xl border border-app-border bg-surface-container-lowest px-3 py-2.5"
 					>
 						<div
-							class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-container text-xl"
+							class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-container text-xl"
 							aria-hidden="true"
 						>
-							{itemEmoji(item.title)}
+							{#if item.image_url}
+								<img src={item.image_url} alt="" loading="lazy" class="h-full w-full object-cover" />
+							{:else}
+								{itemEmoji(item.title)}
+							{/if}
 						</div>
 						<div class="min-w-0 flex-1">
 							<div class="flex items-center gap-2">

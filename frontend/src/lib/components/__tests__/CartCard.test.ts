@@ -8,14 +8,14 @@ const baseProps = {
 	audioUrl: '/static/audio/mock_response.wav',
 	totalPrice: 2450.0,
 	isBudgetExceeded: false,
-	items: [
-		{
+	items: [		{
 			id: 'sku-1',
 			title: 'Ошийник свинячий',
 			price: 240.0,
 			quantity: 2,
 			is_private_label: false,
 			line_total: 480.0,
+			image_url: null,
 		},
 		{
 			id: 'sku-2',
@@ -24,7 +24,8 @@ const baseProps = {
 			quantity: 1,
 			is_private_label: true,
 			line_total: 85.0,
-		},
+			image_url: null,
+		},	
 	],
 };
 

@@ -17,6 +17,7 @@
 		userText: string;
 		audioBase64: string;
 		threadId: string;
+		deliveryAddress: string;
 	}
 
 	interface TimelineEvent {
@@ -74,11 +75,12 @@
 			const response = await fetch(`${getBackendUrl()}/api/agent/stream`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					user_text: req.userText || null,
-					audio_base64: req.audioBase64 || null,
-					thread_id: req.threadId,
-				}),
+			body: JSON.stringify({
+				user_text: req.userText || null,
+				audio_base64: req.audioBase64 || null,
+				thread_id: req.threadId,
+				delivery_address: req.deliveryAddress || null,
+			}),
 			});
 
 			if (!response.ok || !response.body) {

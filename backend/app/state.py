@@ -34,5 +34,8 @@ class SilpoAgentState(TypedDict, total=False):
     picker_trace: NotRequired[list[dict[str, Any]]]
     picker_accepted: NotRequired[int]
     shopping_context: NotRequired[dict[str, str] | None]
+    checkout_url: NotRequired[str | None]
+    cart_validations: NotRequired[list[dict[str, Any]]]
+    loyalty_hint: NotRequired[str | None]
     current_step: NotRequired[str]
     messages: Annotated[list[BaseMessage], add_messages]

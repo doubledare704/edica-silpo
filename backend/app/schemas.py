@@ -7,6 +7,7 @@ class AgentStreamRequest(BaseModel):
     user_text: str | None = None
     thread_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     audio_base64: str | None = None
+    delivery_address: str | None = None
 
 
 class StoreItem(BaseModel):

@@ -81,11 +81,11 @@ class MCPProductService:
     @staticmethod
     def _product_value(product: Any, *names: str, default: Any = None) -> Any:
         for name in names:
-            value = getattr(product, name, None)
-            if value is not None:
-                return value
             if isinstance(product, dict) and name in product:
                 return product[name]
+            value = getattr(product, name, None)
+            if value is not None and not callable(value):
+                return value
         return default
 
     @classmethod
@@ -108,6 +108,9 @@ class MCPProductService:
         slug = cls._product_value(product, "slug")
         if slug is not None:
             normalized["slug"] = str(slug)
+        image_url = cls._product_value(product, "image_url", "imageUrl", "image")
+        if image_url is not None:
+            normalized["image_url"] = str(image_url)
         return normalized
 
     @staticmethod
@@ -151,6 +154,12 @@ class MCPProductService:
             return prod
 
         def fallback_or_none() -> dict[str, Any] | None:
+            # Static catalog is demo/offline data: only fabricate it when no live
+            # catalog is reachable (no context) or in mock mode. With a live
+            # context a miss is an honest miss — fabricated SKUs would fail cart
+            # validation downstream (non-UUID productId, no company/branch).
+            if context is not None and not settings.MCP_MOCK_MODE:
+                return None
             prod = self._match_fallback(query)
             prod["quantity"] = quantity
             if max_price is not None and float(prod.get("price", 0.0)) * quantity > max_price:
@@ -336,10 +345,133 @@ class MCPProductService:
             for i, entry in enumerate(entries)
         ]
 
+    @staticmethod
+    def _slot_bounds(slot: Any) -> tuple[str, str | None] | None:
+        """Extracts (start, end) bounds from a slot dict/model/string."""
+        if isinstance(slot, str):
+            return (slot, None)
+        if slot is None:
+            return None
+        start = MCPProductService._product_value(slot, "startsAt", "starts_at", "start")
+        if start is None:
+            return None
+        end = MCPProductService._product_value(slot, "endsAt", "ends_at", "end")
+        return (str(start), str(end) if end is not None else None)
+
+    @staticmethod
+    def _normalize_cart_detail(detail: Any) -> dict[str, Any] | None:
+        """Flattens a cart detail envelope into plain snake_case fields."""
+        if detail is None:
+            return None
+        branch_id = MCPProductService._product_value(detail, "branch_id", "branchId")
+        delivery_type = MCPProductService._product_value(detail, "delivery_type", "deliveryType")
+        if branch_id is None or delivery_type is None:
+            return None
+        totals = MCPProductService._product_value(detail, "totals", default={}) or {}
+        loyalty = MCPProductService._product_value(detail, "loyalty", default={}) or {}
+        return {
+            "cart_id": str(
+                MCPProductService._product_value(detail, "cart_id", "cartId", "shopping_cart_id", default="")
+            ),
+            "branch_id": str(branch_id),
+            "delivery_type": str(delivery_type),
+            "timeslot": MCPProductService._product_value(detail, "timeslot"),
+            "items": list(MCPProductService._product_value(detail, "items", default=[]) or []),
+            "shipments": list(MCPProductService._product_value(detail, "shipments", default=[]) or []),
+            "address": MCPProductService._product_value(detail, "address", default={}) or {},
+            "total_price": totals.get("total_price", totals.get("totalPrice"))
+            if isinstance(totals, dict)
+            else float(getattr(totals, "total_price", 0.0) or 0.0),
+            "loyalty": loyalty,
+            "validations": [
+                {
+                    "code": str(MCPProductService._product_value(entry, "code", default="")),
+                    "message": str(MCPProductService._product_value(entry, "message", default="")),
+                    "severity": str(MCPProductService._product_value(entry, "severity", default="info")),
+                }
+                for entry in (MCPProductService._product_value(detail, "validations", default=[]) or [])
+            ],
+            "checkout_web_link": MCPProductService._product_value(detail, "checkout_web_link", "checkoutWebLink"),
+            "checkout_mobile_link": MCPProductService._product_value(
+                detail, "checkout_mobile_link", "checkoutMobileLink"
+            ),
+        }
+
+    async def _fetch_cart_detail(self, client: Any, cart_id: str) -> dict[str, Any] | None:
+        try:
+            return self._normalize_cart_detail(await client.get_cart_by_id(cart_id))
+        except (SilpoError, RuntimeError, OSError, ValueError, AttributeError) as exc:
+            logger.debug("Could not load cart detail for '%s': %s", cart_id, exc)
+            return None
+
+    @staticmethod
+    def _loyalty_hint(loyalty: Any) -> str | None:
+        """Ask-don't-apply bonus prompt per the official bonus flow."""
+        get = MCPProductService._product_value
+        enabled = get(loyalty, "is_enabled", "isEnabled", default=False)
+        requested = get(loyalty, "bonus_requested", "bonusRequested", default=None)
+        try:
+            available = float(get(loyalty, "bonus_available", "bonusAvailable", default=0.0) or 0.0)
+        except (TypeError, ValueError):
+            return None
+        if enabled and available > 0 and requested is None:
+            return f"У вас є {available:g} балабонусів. Скажіть «застосуй бонуси», щоб використати їх."
+        return None
+
+    async def _validated_slot(
+        self, client: Any, branch_id: str, delivery_type: str, slot: Any
+    ) -> tuple[str, str | None] | None:
+        """Returns current slot bounds when still bookable, else the first available slot."""
+        try:
+            slots = await client.get_time_slots(branch_id, delivery_types=[delivery_type]) or []
+        except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+            logger.debug("Could not validate slot for branch '%s': %s", branch_id, exc)
+            return self._slot_bounds(slot)
+        bounds = [self._slot_bounds(entry) for entry in slots]
+        bounds = [entry for entry in bounds if entry is not None]
+        if not bounds:
+            return self._slot_bounds(slot)
+        current = self._slot_bounds(slot)
+        if current is not None and any(start == current[0] for start, _ in bounds):
+            return current
+        logger.info("mcp slot changed branch=%s old=%s new=%s", branch_id, current, bounds[0])
+        return bounds[0]
+
+    async def _context_from_cart(self, client: Any) -> dict[str, str] | None:
+        """Official flow steps 1-3: cart → detail → validated slot context."""
+        try:
+            cart = await client.get_cart()
+        except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+            logger.debug("Could not load active cart: %s", exc)
+            return None
+        cart_id = self._product_value(cart, "cart_id", "cartId", "shopping_cart_id", "shoppingCartId", "id")
+        if not cart_id:
+            return None
+        detail = await self._fetch_cart_detail(client, str(cart_id))
+        if detail is None:
+            return None
+        bounds = await self._validated_slot(client, detail["branch_id"], detail["delivery_type"], detail["timeslot"])
+        if bounds is None:
+            return None
+        return {
+            "branch_id": detail["branch_id"],
+            "delivery_type": detail["delivery_type"],
+            "timeslot_start": bounds[0],
+            "timeslot_end": bounds[1] or bounds[0],
+        }
+
     async def resolve_shopping_context(self, delivery_address: str | None) -> dict[str, str] | None:
-        """Resolves branch/delivery/slot context for catalog calls; canned context in mock mode."""
+        """Resolves branch/delivery/slot context: active cart first, address flow fallback."""
         if settings.MCP_MOCK_MODE:
             return dict(MOCK_SHOPPING_CONTEXT)
+        client = SilpoClient.for_real_server()
+        try:
+            async with client:
+                context = await self._context_from_cart(client)
+                if context is not None:
+                    return context
+        except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+            logger.debug("Cart-first context resolution failed: %s", exc)
         fulfillment = await self.resolve_fulfillment(delivery_address)
         if fulfillment is None:
             return None
@@ -613,7 +745,66 @@ class MCPProductService:
                 return f"missing {key}"
         return None
 
-    async def create_cart(self, products: list[dict[str, Any]], fulfillment: dict[str, Any] | None = None) -> str:
+    @staticmethod
+    def _delivery_differs(detail: dict[str, Any], fulfillment: dict[str, Any]) -> bool:
+        bounds = MCPProductService._slot_bounds(detail.get("timeslot"))
+        current_start = bounds[0] if bounds else None
+        return (
+            detail.get("branch_id") != fulfillment.get("branch_id")
+            or detail.get("delivery_type") != fulfillment.get("delivery_type")
+            or current_start != fulfillment.get("timeslot_start")
+        )
+
+    @staticmethod
+    def _build_shipments(items: list[dict[str, Any]], branch_id: str) -> list[dict[str, Any]]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for item in items:
+            company_id = str(item.get("companyId") or "")
+            grouped.setdefault(company_id, []).append(
+                {"productId": item["productId"], "quantity": item.get("quantity", 1)}
+            )
+        return [
+            {"branchId": branch_id, "companyId": company_id, "items": lines} for company_id, lines in grouped.items()
+        ]
+
+    async def _apply_delivery_settings(
+        self,
+        client: Any,
+        cart_id: str,
+        detail: dict[str, Any],
+        fulfillment: dict[str, Any],
+        items: list[dict[str, Any]],
+    ) -> None:
+        """Best-effort delivery update: a rejected update must not kill a valid cart write."""
+        shipments = detail.get("shipments") or self._build_shipments(items, str(fulfillment["branch_id"]))
+        try:
+            await client.update_shopping_cart(
+                cart_id,
+                str(fulfillment["delivery_type"]),
+                {"start": fulfillment["timeslot_start"], "end": fulfillment["timeslot_end"]},
+                self._fulfillment_address(fulfillment),
+                shipments,
+                branch_id=str(fulfillment["branch_id"]),
+            )
+        except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+            logger.warning("mcp delivery update failed, keeping cart settings: %s", exc)
+
+    @staticmethod
+    def _fulfillment_address(fulfillment: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: fulfillment[key]
+            for key in ("address_type", "latitude", "longitude", "city", "street", "house", "district")
+            if fulfillment.get(key) is not None
+        }
+
+    async def create_cart(
+        self, products: list[dict[str, Any]], fulfillment: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Official fill-cart flow: ensure cart → apply delivery → upsert → verify.
+
+        Returns cart_url, checkout_url, verified_total, validations, loyalty_hint
+        and the fulfillment used.
+        """
         if not products:
             raise ValueError("Cannot create a cart without products")
 
@@ -643,13 +834,46 @@ class MCPProductService:
             items.append(cart_item)
 
         async with client:
-            cart_id, existing_items = await self._get_or_create_cart_id(client, fulfillment)
-            if existing_items:
-                await client.clear_cart(cart_id)
-            result = await client.add_or_update_cart_products(cart_id, products=items)
+            cart = await client.get_cart()
+            cart_id = self._product_value(cart, "cart_id", "cartId", "shopping_cart_id", "shoppingCartId", "id")
+            detail = await self._fetch_cart_detail(client, str(cart_id)) if cart_id else None
+            if detail is None:
+                if fulfillment is None:
+                    raise ValueError("Silpo has no active cart and no fulfillment details were provided")
+                created = await client.create_shopping_cart(**fulfillment)
+                cart_id = self._product_value(created, "shopping_cart_id", "shoppingCartId", "cart_id", "cartId", "id")
+                if not cart_id:
+                    raise ValueError("Silpo cart creation response is missing an id")
+                cart_id = str(cart_id)
+            await client.add_or_update_cart_products(str(cart_id), products=items)
+            if fulfillment is not None:
+                refreshed = await self._fetch_cart_detail(client, str(cart_id))
+                if refreshed is not None and self._delivery_differs(refreshed, fulfillment):
+                    await self._apply_delivery_settings(client, str(cart_id), refreshed, fulfillment, items)
+            verified = await self._fetch_cart_detail(client, str(cart_id))
 
-        share_url = self._product_value(result, "share_url", "shareUrl", "url")
-        return share_url or f"https://silpo.ua/cart/{cart_id}"
+        validations = verified["validations"] if verified else []
+        loyalty_hint = self._loyalty_hint(verified["loyalty"]) if verified else None
+        verified_total = verified["total_price"] if verified else None
+        checkout_url = None
+        if verified:
+            checkout_url = verified["checkout_web_link"] or verified["checkout_mobile_link"]
+        cart_url = checkout_url or f"https://silpo.ua/cart/{cart_id}"
+        logger.info(
+            "mcp cart written cart_id=%s items=%d validations=%d total=%s",
+            cart_id,
+            len(items),
+            len(validations),
+            verified_total,
+        )
+        return {
+            "cart_url": cart_url,
+            "checkout_url": checkout_url,
+            "verified_total": verified_total,
+            "validations": validations,
+            "loyalty_hint": loyalty_hint,
+            "fulfillment": fulfillment,
+        }
 
 
 mcp_product_service = MCPProductService()

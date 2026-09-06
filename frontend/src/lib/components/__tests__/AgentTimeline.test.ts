@@ -2,7 +2,12 @@ import { render, screen, waitFor } from '@testing-library/svelte';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import AgentTimeline from '../AgentTimeline.svelte';
 
-const REQUEST = { userText: 'Тест', audioBase64: '', threadId: 'thread-1' };
+const REQUEST = {
+	userText: 'Тест',
+	audioBase64: '',
+	threadId: 'thread-1',
+	deliveryAddress: 'Київ, вул. Мишуги Олександра, 4',
+};
 
 function mockFetchWithSse(events: Array<{ event: string; data: unknown }>) {
 	const body = events
@@ -41,6 +46,7 @@ const COMPLETE_EVENT = {
 				quantity: 2,
 				is_private_label: false,
 				line_total: 480.0,
+				image_url: 'https://images.silpo.ua/meat.jpg',
 			},
 		],
 	},
@@ -136,6 +142,22 @@ describe('AgentTimeline', () => {
 		);
 	});
 
+	it('sends the selected delivery address with the stream request', async () => {
+		const oncomplete = vi.fn();
+		const fetchMock = mockFetchWithSse([COMPLETE_EVENT]);
+
+		render(AgentTimeline, { request: REQUEST, oncomplete });
+
+		await waitFor(() => expect(oncomplete).toHaveBeenCalled());
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			'http://localhost:8000/api/agent/stream',
+			expect.objectContaining({
+				body: expect.stringContaining('"delivery_address":"Київ, вул. Мишуги Олександра, 4"'),
+			}),
+		);
+	});
+
 	it('forwards normalized cart items from node_complete', async () => {
 		const oncomplete = vi.fn();
 		mockFetchWithSse([COMPLETE_EVENT]);
@@ -147,6 +169,38 @@ describe('AgentTimeline', () => {
 			expect.objectContaining({
 				items: [expect.objectContaining({ title: 'Ошийник свинячий', quantity: 2 })],
 			}),
+		);
+	});
+
+	it('normalizes item image_url and forwards the total price', async () => {
+		const oncomplete = vi.fn();
+		mockFetchWithSse([COMPLETE_EVENT]);
+
+		render(AgentTimeline, { request: REQUEST, oncomplete });
+
+		await waitFor(() => expect(oncomplete).toHaveBeenCalled());
+		expect(oncomplete).toHaveBeenCalledWith(
+			expect.objectContaining({
+				totalPrice: 2450.0,
+				items: [expect.objectContaining({ image_url: 'https://images.silpo.ua/meat.jpg' })],
+			}),
+		);
+	});
+
+	it('maps missing image_url to null', async () => {
+		const oncomplete = vi.fn();
+		mockFetchWithSse([
+			{
+				event: 'node_complete',
+				data: { ...COMPLETE_EVENT.data, items: [{ ...COMPLETE_EVENT.data.items[0], image_url: undefined }] },
+			},
+		]);
+
+		render(AgentTimeline, { request: REQUEST, oncomplete });
+
+		await waitFor(() => expect(oncomplete).toHaveBeenCalled());
+		expect(oncomplete).toHaveBeenCalledWith(
+			expect.objectContaining({ items: [expect.objectContaining({ image_url: null })] }),
 		);
 	});
 });
