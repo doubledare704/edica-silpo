@@ -1,8 +1,14 @@
 <script lang="ts">
 	import '../app.css';
 	import StoreSelector from '$lib/components/StoreSelector.svelte';
+	import { cartStore } from '$lib/cartStore.svelte';
+	import { page } from '$app/state';
 
 	const { children } = $props();
+
+	let cartCount = $derived(cartStore.items.reduce((sum, item) => sum + item.quantity, 0));
+	let isCartPage = $derived(page.url.pathname === '/cart');
+	let isAssistantPage = $derived(!isCartPage);
 </script>
 
 <div class="min-h-screen bg-app-bg text-app-text antialiased flex flex-col pb-24">
@@ -42,33 +48,65 @@
 		aria-label="Основна навігація"
 	>
 		<div class="w-full max-w-lg mx-auto grid grid-cols-4 h-full">
-			<button
-				type="button"
-				class="flex flex-col items-center justify-center gap-0.5 h-full text-app-primary focus:outline-none"
-				aria-current="page"
+			<a
+				href="/"
+				data-testid="nav-assistant"
+				aria-current={isAssistantPage ? 'page' : undefined}
+				class="flex flex-col items-center justify-center gap-0.5 h-full focus:outline-none {isAssistantPage
+					? 'text-app-primary'
+					: 'text-[#6E6E73] hover:text-app-primary'} transition-colors"
 			>
-				<span class="flex items-center justify-center bg-app-primary-soft px-3 py-1 rounded-full">
+				<span
+					class="flex items-center justify-center px-3 py-1 rounded-full {isAssistantPage
+						? 'bg-app-primary-soft'
+						: ''}"
+				>
 					<span
 						class="material-symbols-outlined text-[22px]"
 						aria-hidden="true"
 						style="font-variation-settings: 'FILL' 1;">auto_awesome</span
 					>
 				</span>
-				<span class="text-[11px] font-semibold">Асистент</span>
-			</button>
-			<button
-				type="button"
-				class="flex flex-col items-center justify-center gap-0.5 h-full text-[#6E6E73] hover:text-app-primary transition-colors focus:outline-none"
-			>
-				<span class="relative">
-					<span class="material-symbols-outlined text-[22px]" aria-hidden="true">shopping_bag</span>
-					<span
-						class="absolute -top-1 -right-1.5 bg-app-primary text-white text-[10px] font-bold rounded-full h-4 w-4 flex items-center justify-center border-2 border-white leading-none"
-						>2</span
-					>
+				<span class="text-[11px] {isAssistantPage ? 'font-semibold' : 'font-medium'}">Асистент</span>
+			</a>
+			{#if cartCount > 0}
+				<a
+					href="/cart"
+					data-testid="nav-cart"
+					aria-current={isCartPage ? 'page' : undefined}
+					aria-label="Кошик, {cartCount} товарів"
+					class="flex flex-col items-center justify-center gap-0.5 h-full focus:outline-none {isCartPage
+						? 'text-app-primary'
+						: 'text-[#6E6E73] hover:text-app-primary'} transition-colors"
+				>
+					<span class="relative">
+						<span class="material-symbols-outlined text-[22px]" aria-hidden="true"
+							>shopping_bag</span
+						>
+						<span
+							data-testid="cart-badge"
+							class="absolute -top-1 -right-1.5 bg-app-primary text-white text-[10px] font-bold rounded-full h-4 min-w-4 px-0.5 flex items-center justify-center border-2 border-white leading-none"
+							>{cartCount}</span
+						>
+					</span>
+					<span class="text-[11px] {isCartPage ? 'font-semibold' : 'font-medium'}">Кошик</span>
+				</a>
+			{:else}
+				<span
+					data-testid="nav-cart"
+					aria-disabled="true"
+					aria-label="Кошик порожній"
+					title="Кошик порожній"
+					class="flex flex-col items-center justify-center gap-0.5 h-full text-[#6E6E73] opacity-40 cursor-not-allowed"
+				>
+					<span class="relative">
+						<span class="material-symbols-outlined text-[22px]" aria-hidden="true"
+							>shopping_bag</span
+						>
+					</span>
+					<span class="text-[11px] font-medium">Кошик</span>
 				</span>
-				<span class="text-[11px] font-medium">Кошик</span>
-			</button>
+			{/if}
 			<button
 				type="button"
 				class="flex flex-col items-center justify-center gap-0.5 h-full text-[#6E6E73] hover:text-app-primary transition-colors focus:outline-none"

@@ -50,5 +50,23 @@ describe('VoiceInput', () => {
 
 		expect(input.value).toBe('');
 	});
+
+	it('disables text input, send and mic buttons when disabled', async () => {
+		const onsubmit = vi.fn();
+		render(VoiceInput, { onsubmit, disabled: true });
+
+		expect(screen.getByRole('textbox')).toBeDisabled();
+		expect(screen.getByTestId('send-button')).toBeDisabled();
+		expect(screen.getByTestId('ptt-button')).toBeDisabled();
+	});
+
+	it('does not submit while disabled', async () => {
+		const onsubmit = vi.fn();
+		render(VoiceInput, { onsubmit, disabled: true });
+
+		await fireEvent.click(screen.getByTestId('send-button'));
+
+		expect(onsubmit).not.toHaveBeenCalled();
+	});
 });
 

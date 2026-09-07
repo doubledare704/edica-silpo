@@ -8,10 +8,12 @@
 	 * Props:
 	 *   request — { userText, audioBase64, threadId } | null
 	 *   oncomplete(payload: NodeCompletePayload) — called on `node_complete` event
+	 *   onstreaming(streaming: boolean) — notified when thinking starts/finishes
 	 */
 
 	import { getBackendUrl } from '$lib/config';
 	import { normalizeCartItems, type CartItem } from '$lib/cart';
+	import { tick } from 'svelte';
 
 	interface StreamRequest {
 		userText: string;
@@ -38,14 +40,16 @@
 	interface Props {
 		request: StreamRequest | null;
 		oncomplete: (payload: NodeCompletePayload) => void;
+		onstreaming?: (streaming: boolean) => void;
 	}
 
-	let { request, oncomplete }: Props = $props();
+	let { request, oncomplete, onstreaming }: Props = $props();
 
 	let events: TimelineEvent[] = $state([]);
 	let streaming = $state(false);
 	let error: string | null = $state(null);
 	let eventCounter = 0;
+	let timelineEventsEl: HTMLDivElement | null = $state(null);
 
 	function resolveAudioUrl(url: string | null): string | null {
 		if (!url) return null;
@@ -70,6 +74,7 @@
 		events = [];
 		streaming = true;
 		error = null;
+		onstreaming?.(true);
 
 		try {
 			const response = await fetch(`${getBackendUrl()}/api/agent/stream`, {
@@ -117,6 +122,7 @@
 			error = err instanceof Error ? err.message : "Помилка з'єднання";
 		} finally {
 			streaming = false;
+			onstreaming?.(false);
 		}
 	}
 
@@ -158,6 +164,18 @@
 	$effect(() => {
 		if (request) {
 			runStream(request);
+		}
+	});
+
+	// Keep the latest thought visible: the list is capped at half the viewport
+	// height and scrolls, so pin it to the bottom whenever a new event arrives.
+	$effect(() => {
+		const count = events.length;
+		const el = timelineEventsEl;
+		if (count && el) {
+			void tick().then(() => {
+				el.scrollTop = el.scrollHeight;
+			});
 		}
 	});
 
@@ -206,7 +224,11 @@
 			<p class="text-error text-sm mb-4">⚠️ {error}</p>
 		{/if}
 
-		<div class="flex flex-col gap-4">
+		<div
+			data-testid="timeline-events"
+			bind:this={timelineEventsEl}
+			class="flex flex-col gap-4 max-h-[33vh] overflow-y-auto pr-1"
+		>
 			{#each events as ev, index (ev.id)}
 				{@const active = streaming && index === events.length - 1}
 				{#if active}

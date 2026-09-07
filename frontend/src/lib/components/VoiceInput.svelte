@@ -14,9 +14,10 @@
 
 	interface Props {
 		onsubmit: (data: { userText: string; audioBase64: string }) => void;
+		disabled?: boolean;
 	}
 
-	let { onsubmit }: Props = $props();
+	let { onsubmit, disabled = false }: Props = $props();
 
 	let userText = $state('');
 	let recording = $state(false);
@@ -56,7 +57,7 @@
 	}
 
 	function handlePTTPointerDown() {
-		if (!recording) startRecording();
+		if (!disabled && !recording) startRecording();
 	}
 
 	function handlePTTPointerUp() {
@@ -64,6 +65,7 @@
 	}
 
 	function handleTextSubmit() {
+		if (disabled) return;
 		const text = userText.trim();
 		if (!text) return;
 		onsubmit({ userText: text, audioBase64: '' });
@@ -79,7 +81,9 @@
 	<div class="relative">
 		<input
 			type="text"
-			class="w-full bg-surface border border-app-border rounded-full py-4 pl-6 pr-14 text-[16px] leading-6 text-on-surface text-center focus:outline-none focus:ring-2 focus:ring-app-primary focus:border-transparent transition-shadow shadow-sm placeholder:text-on-surface-variant/70"
+			data-testid="text-input"
+			disabled={disabled}
+			class="w-full bg-surface border border-app-border rounded-full py-4 pl-6 pr-14 text-[16px] leading-6 text-on-surface text-center focus:outline-none focus:ring-2 focus:ring-app-primary focus:border-transparent transition-shadow shadow-sm placeholder:text-on-surface-variant/70 disabled:opacity-50 disabled:cursor-not-allowed"
 			placeholder="Я слухаю... Запитайте Edica, наприклад:"
 			aria-label="Текст запиту до Edica"
 			bind:value={userText}
@@ -89,8 +93,9 @@
 			data-testid="send-button"
 			type="button"
 			aria-label="Надіслати"
+			disabled={disabled}
 			onclick={handleTextSubmit}
-			class="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-surface-container hover:bg-surface-container-high flex items-center justify-center text-on-surface-variant hover:text-app-primary transition-colors active:scale-95"
+			class="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-surface-container hover:bg-surface-container-high flex items-center justify-center text-on-surface-variant hover:text-app-primary transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-on-surface-variant"
 		>
 			<span class="material-symbols-outlined" aria-hidden="true">send</span>
 		</button>
@@ -99,7 +104,7 @@
 	<button
 		data-testid="ptt-button"
 		type="button"
-		disabled={!micAvailable}
+		disabled={!micAvailable || disabled}
 		onpointerdown={handlePTTPointerDown}
 		onpointerup={handlePTTPointerUp}
 		onpointerleave={handlePTTPointerUp}
@@ -107,7 +112,7 @@
 			'rounded-full px-6 py-3 text-sm font-semibold transition-all duration-150 select-none border inline-flex items-center justify-center gap-2',
 			recording
 				? 'bg-red-500 border-red-500 text-white scale-95 shadow-inner'
-				: micAvailable
+				: micAvailable && !disabled
 					? 'bg-surface-container-lowest text-on-surface-variant border-app-border hover:border-app-primary hover:text-app-primary shadow-sm'
 					: 'bg-surface-container-low text-on-surface-variant/50 border-app-border cursor-not-allowed',
 		].join(' ')}

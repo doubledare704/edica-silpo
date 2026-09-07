@@ -203,4 +203,46 @@ describe('AgentTimeline', () => {
 			expect.objectContaining({ items: [expect.objectContaining({ image_url: null })] }),
 		);
 	});
+
+	it('caps the thought list at one-third viewport height with scrolling', async () => {
+		const oncomplete = vi.fn();
+		mockFetchWithSse([
+			{ event: 'thinking_step', data: { node: 'stt' } },
+			COMPLETE_EVENT,
+		]);
+
+		render(AgentTimeline, { request: REQUEST, oncomplete });
+
+		await waitFor(() => expect(oncomplete).toHaveBeenCalled());
+		const list = screen.getByTestId('timeline-events');
+		expect(list.className).toContain('max-h-[33vh]');
+		expect(list.className).toContain('overflow-y-auto');
+	});
+
+	it('pins the thought list to the bottom when new events arrive', async () => {
+		const oncomplete = vi.fn();
+		mockFetchWithSse([
+			{ event: 'thinking_step', data: { node: 'stt' } },
+			{ event: 'thinking_step', data: { node: 'parse_intent' } },
+			COMPLETE_EVENT,
+		]);
+
+		render(AgentTimeline, { request: REQUEST, oncomplete });
+
+		await waitFor(() => expect(oncomplete).toHaveBeenCalled());
+		const list = screen.getByTestId('timeline-events') as HTMLElement;
+		await waitFor(() => expect(list.scrollTop).toBe(list.scrollHeight));
+	});
+
+	it('notifies onstreaming when thinking starts and finishes', async () => {
+		const oncomplete = vi.fn();
+		const onstreaming = vi.fn();
+		mockFetchWithSse([COMPLETE_EVENT]);
+
+		render(AgentTimeline, { request: REQUEST, oncomplete, onstreaming });
+
+		await waitFor(() => expect(onstreaming).toHaveBeenCalledWith(true));
+		await waitFor(() => expect(oncomplete).toHaveBeenCalled());
+		await waitFor(() => expect(onstreaming).toHaveBeenCalledWith(false));
+	});
 });
