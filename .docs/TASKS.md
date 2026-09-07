@@ -60,5 +60,11 @@ npm run test:run --prefix frontend
 - [x] Iterative picker phase 1: extend `SilpoAgentState` (remaining_budget, unfulfilled_requests, is_requirements_met, picker_trace) + per-intent picker policy in planners.
 - [x] Iterative picker phase 2: picker service ReAct loop + node with full Silpo toolset.
 - [x] Iterative picker phase 3: check_constraints fill/exit routing + SSE tool events.
+- [x] Picker relevance gate: strict-reject deterministic query↔title validation between MCP search and cart acceptance (mismatches stay `unfulfilled` with `rejected_irrelevant` trace).
+- [x] Review hardening of relevance gate: grill-modifier false accept (`Курка для гриля` vs `Овочі для гриля`), `group:` prefix collision, positive-case locks.
+- [x] Goal-aligned picker loop: LLM query formulation from user request + LLM judge auditing survivors (accept/reject/suggest-query), deterministic gate as pre-filter, offline fallback unchanged.
+- [x] Goal-constraint enforcement on all paths: deterministic alcohol backstop + LLM judge for promos, qualifier preservation (fresh/non-alcoholic) end-to-end.
+- [ ] Party planner honors `raw_item_requests` (chicken/mushrooms/non-alcoholic) instead of hardcoded seed queries.
+- [ ] Picker advisor prompt: pass original query + `{"reject": true}` veto; intent prompt few-shots for grill/non-alcoholic extraction.
 - Run gated live Gemini/MCP smoke tests with real credentials.
 - Keep `.docs/LANGRAPH_DISCOVERY.md` as historical reference only; it is not the active architecture contract.

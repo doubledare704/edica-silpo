@@ -124,6 +124,130 @@ async def choose_picker_candidate(
         return None
 
 
+def _sanitize_seed(data: Any) -> list[dict[str, Any]] | None:
+    """Validates an LLM-produced seed list; None means keep the planner fallback."""
+    if not isinstance(data, list) or not data:
+        return None
+    seed: list[dict[str, Any]] = []
+    for entry in data[:10]:
+        if not isinstance(entry, dict):
+            continue
+        query = entry.get("query")
+        if not isinstance(query, str) or not query.strip():
+            continue
+        try:
+            quantity = int(entry.get("quantity", 1) or 1)
+        except (TypeError, ValueError):
+            quantity = 1
+        category = entry.get("category")
+        seed.append(
+            {
+                "query": query.strip(),
+                "category": category if isinstance(category, str) and category else "general",
+                "quantity": max(1, quantity),
+                "prefer_private_label": bool(entry.get("prefer_private_label", False)),
+            }
+        )
+    return seed or None
+
+
+async def formulate_picker_queries(
+    goal: str,
+    fallback_seed: list[dict[str, Any]],
+) -> list[dict[str, Any]] | None:
+    """Asks Gemini to build goal-derived search queries; None means keep the planner fallback."""
+    if settings.GEMINI_MOCK_MODE or not settings.GEMINI_API_KEY:
+        return None
+    try:
+        prompt = (
+            "Ти асистент Silpo Smart Shopper. Ціль: " + goal + ". "
+            "Сформуй пошукові запити товарів українською (2-6 шт) для цієї цілі. "
+            "Зберігай уточнення з цілі (свіжі, безалкогольне) у запитах. "
+            'Відповідай JSON строго списком [{"query": "...", '
+            '"category": "meat|vegetables|drinks|accessories|general", "quantity": N}]. '
+            "Категорії: курка/м'ясо — meat, гриби — vegetables, овочі — vegetables, "
+            'напої — drinks, вугілля — accessories. Приклад: "гриль з куркою, свіжими печерицями та безалкогольним пивом" -> '
+            '[{"query": "Курка для гриля", "category": "meat", "quantity": 2}, '
+            '{"query": "Печериці свіжі", "category": "vegetables", "quantity": 1}, '
+            '{"query": "Овочі для гриля", "category": "vegetables", "quantity": 2}, '
+            '{"query": "Пиво безалкогольне", "category": "drinks", "quantity": 2}].'
+        )
+        response = await _agenerate(
+            model=settings.GEMINI_MODEL,
+            contents=[prompt],
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                response_mime_type="application/json",
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            ),
+        )
+        text = response.text
+        if not text or not text.strip():
+            return None
+        return _sanitize_seed(json.loads(_extract_json_object(text)))
+    except Exception as exc:  # noqa: BLE001 - formulation failure must fall back to planner seed
+        logger.debug("Gemini query formulation failed, using planner fallback: %s", exc)
+        return None
+
+
+async def judge_picker_candidate(
+    query: str,
+    candidate: dict[str, Any],
+    goal: str,
+) -> dict[str, Any]:
+    """Asks Gemini whether a candidate matches the query and goal.
+
+    Fail-open: any failure returns accept, so the deterministic gate and greedy
+    scoring still decide exactly as without the judge.
+    """
+    accept = {"verdict": "accept", "reason": "", "suggested_query": None}
+    if settings.GEMINI_MOCK_MODE or not settings.GEMINI_API_KEY:
+        return accept
+    try:
+        request_line = (
+            f'Запит: "{query}". '
+            if query.strip()
+            else "Запит відсутній (акційне доповнення до кошика) — оцінюй лише відповідність цілі. "
+        )
+        prompt = (
+            "Ти асистент Silpo Smart Shopper. " + request_line + "Ціль: " + goal + ". "
+            f'Кандидат: "{candidate.get("title", "?")}" — {candidate.get("price", "?")} грн '
+            f"x{candidate.get('quantity', 1)}. Чи відповідає кандидат запиту та цілі? "
+            "Відхиляй невідповідності: засіб гігієни замість вугілля, свинина замість курки, "
+            "алкогольне замість безалкогольного, не ті овочі для гриля. "
+            "Оцінюй відповідність саме цілі: відхиляй категорії, яких ціль не містить "
+            "(риба та морепродукти, алкоголь при безалкогольній цілі, засоби гігієни "
+            "для продуктового кошика), і порушення уточнень (мариновані замість свіжих, "
+            "алкогольні замість безалкогольних). "
+            'Відповідай JSON строго {"verdict": "accept"|"reject", "reason": "...", '
+            '"suggested_query": "..."|null}.'
+        )
+        response = await _agenerate(
+            model=settings.GEMINI_MODEL,
+            contents=[prompt],
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                response_mime_type="application/json",
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            ),
+        )
+        text = response.text
+        if not text or not text.strip():
+            return accept
+        data = json.loads(_extract_json_object(text))
+        if not isinstance(data, dict) or data.get("verdict") not in ("accept", "reject"):
+            return accept
+        suggested = data.get("suggested_query")
+        return {
+            "verdict": data["verdict"],
+            "reason": str(data.get("reason", "")),
+            "suggested_query": suggested if isinstance(suggested, str) and suggested.strip() else None,
+        }
+    except Exception as exc:  # noqa: BLE001 - judge failure must fall back to greedy accept
+        logger.debug("Gemini picker judge failed, accepting greedily: %s", exc)
+        return accept
+
+
 async def parse_intent_multimodal(
     user_text: str | None,
     audio_bytes: bytes | None,

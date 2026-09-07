@@ -2,7 +2,7 @@ import logging
 from typing import Any
 
 from ..config import settings
-from ..domain.picker import GeminiPickerAdvisor, PickerService
+from ..domain.picker import GeminiPickerAdvisor, GeminiPickerJudge, GeminiQueryFormulator, PickerService
 from ..services.mcp_service import mcp_product_service
 from ..state import SilpoAgentState
 
@@ -15,9 +15,26 @@ def _default_advisor() -> GeminiPickerAdvisor | None:
     return GeminiPickerAdvisor()
 
 
+def _default_formulator() -> GeminiQueryFormulator | None:
+    if settings.GEMINI_MOCK_MODE or not settings.GEMINI_API_KEY:
+        return None
+    return GeminiQueryFormulator()
+
+
+def _default_judge() -> GeminiPickerJudge | None:
+    if settings.GEMINI_MOCK_MODE or not settings.GEMINI_API_KEY:
+        return None
+    return GeminiPickerJudge()
+
+
 async def picker_node(state: SilpoAgentState) -> dict[str, Any]:
     """Iteratively picks priced products via Silpo tools until budget/requirements resolve."""
-    service = PickerService(product_service=mcp_product_service, advisor=_default_advisor())
+    service = PickerService(
+        product_service=mcp_product_service,
+        advisor=_default_advisor(),
+        query_formulator=_default_formulator(),
+        judge=_default_judge(),
+    )
     result = await service.run(state)
     logger.info(
         "picker node done accepted=%d met=%s remaining=%s",

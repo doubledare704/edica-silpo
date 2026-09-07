@@ -15,5 +15,7 @@ dietary_restrictions [vegetarian, vegan, lactose_free, gluten_free], raw_item_re
 {"intent":"party","budget":2500,"people_count":6,"dietary_restrictions":["vegetarian"],"raw_item_requests":["м'ясо","овочі","напої","вугілля"]};
 'Економний кошик до 1000 грн' ->
 {"intent":"budget","budget":1000,"people_count":null,"dietary_restrictions":[],"raw_item_requests":["молоко","хліб","яйця","масло","крупа"]}.
+'Хочу зібрати друзів на гриль: курка, свіжі печериці та овочі, безалкогольне пиво, 5 людей до 5000 грн' ->
+{"intent":"party","budget":5000,"people_count":5,"dietary_restrictions":[],"raw_item_requests":["курка для гриля","печериці свіжі","овочі для гриля","пиво безалкогольне","вода","вугілля"]}.
 Мова виходу: enum English, сутності Ukrainian.
 """.strip()

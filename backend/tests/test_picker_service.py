@@ -3,7 +3,7 @@
 from typing import Any, ClassVar
 
 import pytest
-from app.domain.picker import PickerService
+from app.domain.picker import PickerService, is_relevant, violates_hard_constraints
 from app.enums import IntentEnum
 from app.state import SilpoAgentState
 
@@ -375,3 +375,385 @@ async def test_picker_node_returns_tracking_fields(monkeypatch) -> None:
         "shopping_context",
     ):
         assert key in result
+
+
+def _mismatch_catalog() -> dict[str, dict[str, Any]]:
+    return {
+        "вугілля деревне": {
+            "id": "t1",
+            "productId": "t1",
+            "title": "Щітка зубна Colgate «Зиг Заг» деревне вугілля",
+            "price": 66.49,
+            "is_private_label": False,
+            "category": "accessories",
+        },
+    }
+
+
+def _bad_filler_catalog() -> dict[str, dict[str, Any]]:
+    catalog = dict(_party_catalog())
+    catalog["хліб український"] = {
+        "id": "f-bad",
+        "productId": "f-bad",
+        "title": "Крем-сир Philadelphia Оригінальний 61%",
+        "price": 219.0,
+        "is_private_label": False,
+        "category": "bakery",
+    }
+    return catalog
+
+
+def test_is_relevant_accepts_matching_charcoal() -> None:
+    relevant, _ = is_relevant("Вугілля деревне", "Вугілля деревне Премія 2.5 кг")
+    assert relevant is True
+
+
+def test_is_relevant_rejects_toothbrush_for_charcoal() -> None:
+    relevant, reason = is_relevant("Вугілля деревне", "Щітка зубна Colgate «Зиг Заг» деревне вугілля")
+    assert relevant is False
+    assert reason
+
+
+def test_is_relevant_rejects_pork_for_chicken() -> None:
+    relevant, _ = is_relevant("Курка для гриля", "Ошийник свинячий")
+    assert relevant is False
+
+
+def test_is_relevant_rejects_alcoholic_for_non_alcoholic() -> None:
+    relevant, _ = is_relevant("Пиво безалкогольне", "Віскі Jameson")
+    assert relevant is False
+    relevant, _ = is_relevant("Вино безалкогольне", "Вино червоне сухе Chianti")
+    assert relevant is False
+
+
+def test_is_relevant_accepts_matching_titles() -> None:
+    assert is_relevant("Ошийник свинячий", "Ошийник свинячий")[0] is True
+    assert is_relevant("Печериці", "Печериці свіжі 500 г")[0] is True
+
+
+def test_is_relevant_rejects_grill_vegetables_for_chicken_query() -> None:
+    relevant, _ = is_relevant("Курка для гриля", "Овочі для гриля")
+    assert relevant is False
+
+
+def test_is_relevant_accepts_non_alcoholic_match() -> None:
+    relevant, _ = is_relevant("Пиво безалкогольне", "Пиво безалкогольне Kronenbourg 0.0%")
+    assert relevant is True
+
+
+def test_is_relevant_accepts_chicken_synonym() -> None:
+    relevant, _ = is_relevant("Курка", "Філе куряче охолоджене")
+    assert relevant is True
+
+
+@pytest.mark.asyncio
+async def test_picker_rejects_toothbrush_for_charcoal_query() -> None:
+    service = PickerService(product_service=FakeProductService(_mismatch_catalog()))
+    result = await service.run(_make_state(IntentEnum.PARTY, budget=2000.0, people_count=1))
+    titles = [str(p.get("title", "")) for p in result["mcp_products"]]
+    assert not any("Щітка" in title for title in titles)
+    assert "Вугілля деревне" in result["unfulfilled_requests"]
+    assert any(entry.get("status") == "rejected_irrelevant" for entry in result["picker_trace"])
+
+
+@pytest.mark.asyncio
+async def test_picker_rejects_irrelevant_filler() -> None:
+    service = PickerService(product_service=FakeProductService(_bad_filler_catalog()))
+    result = await service.run(_make_state(IntentEnum.PARTY, budget=2000.0, people_count=1))
+    titles = [str(p.get("title", "")) for p in result["mcp_products"]]
+    assert "Крем-сир Philadelphia Оригінальний 61%" not in titles
+    assert any(entry.get("status") == "rejected_irrelevant" for entry in result["picker_trace"])
+
+
+def _grill_catalog() -> dict[str, dict[str, Any]]:
+    return {
+        "курка для гриля": {
+            "id": "c1",
+            "productId": "c1",
+            "title": "Куряче філе для гриля",
+            "price": 180.0,
+            "is_private_label": False,
+            "category": "meat",
+        },
+        "печериці": {
+            "id": "m1",
+            "productId": "m1",
+            "title": "Печериці свіжі 500 г",
+            "price": 65.0,
+            "is_private_label": False,
+            "category": "vegetables",
+        },
+        "овочі для гриля": {
+            "id": "v1",
+            "productId": "v1",
+            "title": "Овочі для гриля",
+            "price": 95.0,
+            "is_private_label": False,
+            "category": "vegetables",
+        },
+    }
+
+
+class MappingFormulator:
+    """Test double returning a fixed goal-derived seed regardless of fallback."""
+
+    def __init__(self, seed: list[dict[str, Any]]) -> None:
+        self._seed = seed
+        self.goals: list[str] = []
+
+    async def formulate(self, goal: str, fallback_seed: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        self.goals.append(goal)
+        return self._seed
+
+
+class RejectPorkJudge:
+    """Test double rejecting pork titles with a chicken reformulation."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    async def judge(self, query: str, candidate: dict[str, Any], goal: str) -> dict[str, Any]:
+        title = str(candidate.get("title", ""))
+        self.calls.append((query, title))
+        if "свин" in title.lower() or "ошийник" in title.lower():
+            return {"verdict": "reject", "reason": "pork instead of chicken", "suggested_query": "Курка для гриля"}
+        return {"verdict": "accept", "reason": "", "suggested_query": None}
+
+
+class ExplodingJudge:
+    async def judge(self, query: str, candidate: dict[str, Any], goal: str) -> dict[str, Any]:
+        raise RuntimeError("llm down")
+
+
+class ExplodingFormulator:
+    async def formulate(self, goal: str, fallback_seed: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        raise RuntimeError("llm down")
+
+
+@pytest.mark.asyncio
+async def test_picker_uses_formulated_queries_for_grill_request() -> None:
+    seed = [
+        {"query": "Курка для гриля", "category": "meat", "quantity": 2, "prefer_private_label": False},
+        {"query": "Печериці", "category": "vegetables", "quantity": 1, "prefer_private_label": False},
+        {"query": "Овочі для гриля", "category": "vegetables", "quantity": 2, "prefer_private_label": False},
+    ]
+    formulator = MappingFormulator(seed)
+    service = PickerService(product_service=FakeProductService(_grill_catalog()), query_formulator=formulator)
+    result = await service.run(
+        _make_state(
+            IntentEnum.PARTY,
+            budget=5000.0,
+            people_count=5,
+            user_text="Збери друзів на гриль: курка, печериці та овочі",
+            raw_item_requests=["курка", "печериці", "овочі"],
+        )
+    )
+    titles = [str(p.get("title", "")) for p in result["mcp_products"]]
+    assert any("Куряче" in title for title in titles)
+    assert any("Печериці" in title for title in titles)
+    assert not any("Ошийник" in title for title in titles)
+    assert len(formulator.goals) == 1
+    assert "курка" in formulator.goals[0].lower()
+
+
+@pytest.mark.asyncio
+async def test_picker_judge_rejects_pork_and_researches_chicken() -> None:
+    catalog = dict(_party_catalog())
+    catalog["курка для гриля"] = {
+        "id": "c1",
+        "productId": "c1",
+        "title": "Куряче філе для гриля",
+        "price": 180.0,
+        "is_private_label": False,
+        "category": "meat",
+    }
+    judge = RejectPorkJudge()
+    service = PickerService(product_service=FakeProductService(catalog), judge=judge)
+    result = await service.run(_make_state(IntentEnum.PARTY, budget=5000.0, people_count=5))
+    titles = [str(p.get("title", "")) for p in result["mcp_products"]]
+    assert not any("Ошийник" in title for title in titles)
+    assert any("Куряче" in title for title in titles)
+    assert any(entry.get("status") == "llm_rejected" for entry in result["picker_trace"])
+    assert any(entry.get("status") == "llm_reformulated" for entry in result["picker_trace"])
+    assert judge.calls
+
+
+@pytest.mark.asyncio
+async def test_picker_falls_back_to_greedy_when_judge_fails() -> None:
+    service = PickerService(product_service=FakeProductService(_party_catalog()), judge=ExplodingJudge())
+    result = await service.run(_make_state(IntentEnum.PARTY, budget=2000.0))
+    assert result["picker_accepted"] >= 3
+
+
+@pytest.mark.asyncio
+async def test_picker_falls_back_to_planner_seed_when_formulator_fails() -> None:
+    service = PickerService(
+        product_service=FakeProductService(_party_catalog()), query_formulator=ExplodingFormulator()
+    )
+    result = await service.run(_make_state(IntentEnum.PARTY, budget=2000.0))
+    assert result["picker_accepted"] >= 3
+    assert result["is_requirements_met"] is True
+
+
+@pytest.mark.asyncio
+async def test_picker_default_path_makes_no_llm_calls(monkeypatch) -> None:
+    from app.services import gemini_service
+
+    async def _boom(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("must not be called")
+
+    monkeypatch.setattr(gemini_service, "formulate_picker_queries", _boom)
+    monkeypatch.setattr(gemini_service, "judge_picker_candidate", _boom)
+    service = PickerService(product_service=FakeProductService(_party_catalog()))
+    result = await service.run(_make_state(IntentEnum.PARTY, budget=2000.0))
+    assert result["picker_accepted"] >= 3
+
+
+class PromoFake(FakeProductService):
+    """Test double serving a fixed promo list on top of the search catalog."""
+
+    def __init__(self, catalog: dict[str, dict[str, Any]], promos: list[dict[str, Any]]) -> None:
+        super().__init__(catalog)
+        self._promos = promos
+
+    async def fetch_promo_products(
+        self, context: dict[str, str] | None, max_price: float | None = None, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        self.calls.append(("fetch_promo_products", max_price))
+        return [dict(promo) for promo in self._promos]
+
+
+def _promo_mix() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "w1",
+            "productId": "w1",
+            "title": "Віскі Jameson",
+            "price": 629.0,
+            "is_private_label": False,
+            "quantity": 1,
+            "category": "promo",
+        },
+        {
+            "id": "t1",
+            "productId": "t1",
+            "title": "Тунець стейк свіжоморожений",
+            "price": 399.0,
+            "is_private_label": False,
+            "quantity": 1,
+            "category": "promo",
+        },
+        {
+            "id": "w2",
+            "productId": "w2",
+            "title": "Вода мінеральна акційна",
+            "price": 20.0,
+            "is_private_label": False,
+            "quantity": 1,
+            "category": "promo",
+        },
+    ]
+
+
+class RejectFishJudge:
+    """Test double rejecting fish promos while accepting everything else."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    async def judge(self, query: str, candidate: dict[str, Any], goal: str) -> dict[str, Any]:
+        title = str(candidate.get("title", ""))
+        self.calls.append((query, title))
+        if "тунец" in title.lower() or "тунець" in title.lower():
+            return {"verdict": "reject", "reason": "fish not requested", "suggested_query": None}
+        return {"verdict": "accept", "reason": "", "suggested_query": None}
+
+
+class RejectMarinatedJudge:
+    """Test double rejecting marinated mushrooms with a fresh reformulation."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    async def judge(self, query: str, candidate: dict[str, Any], goal: str) -> dict[str, Any]:
+        title = str(candidate.get("title", ""))
+        self.calls.append((query, title))
+        if "маринован" in title.lower():
+            return {"verdict": "reject", "reason": "wanted fresh, not marinated", "suggested_query": "Печериці свіжі"}
+        return {"verdict": "accept", "reason": "", "suggested_query": None}
+
+
+def test_violates_hard_constraints_blocks_alcohol_for_non_alcoholic_goal() -> None:
+    violated, reason = violates_hard_constraints("Віскі Jameson", "request=хочу безалкогольне пиво")
+    assert violated is True
+    assert reason
+
+
+def test_violates_hard_constraints_allows_matching_non_alcoholic_title() -> None:
+    assert violates_hard_constraints("Пиво Stella Artois світле безалкогольне", "request=безалкогольне")[0] is False
+    assert violates_hard_constraints("Виноград кишмиш", "request=безалкогольне")[0] is False
+
+
+def test_violates_hard_constraints_ignores_alcohol_without_goal_demand() -> None:
+    assert violates_hard_constraints("Віскі Jameson", "request=вечірка з друзями")[0] is False
+
+
+@pytest.mark.asyncio
+async def test_picker_rejects_whiskey_promo_under_non_alcoholic_goal() -> None:
+    service = PickerService(product_service=PromoFake(_party_catalog(), _promo_mix()))
+    result = await service.run(
+        _make_state(
+            IntentEnum.PARTY,
+            budget=5000.0,
+            people_count=1,
+            user_text="хочу безалкогольне пиво і воду",
+            raw_item_requests=["пиво безалкогольне", "вода"],
+        )
+    )
+    titles = [str(p.get("title", "")) for p in result["mcp_products"]]
+    assert not any("Jameson" in title for title in titles)
+    assert any("Вода мінеральна акційна" in title for title in titles)
+    assert any(entry.get("status") == "rejected_constraint" for entry in result["picker_trace"])
+
+
+@pytest.mark.asyncio
+async def test_picker_judge_rejects_fish_promo() -> None:
+    service = PickerService(product_service=PromoFake(_party_catalog(), _promo_mix()), judge=RejectFishJudge())
+    result = await service.run(_make_state(IntentEnum.PARTY, budget=5000.0, people_count=1))
+    titles = [str(p.get("title", "")) for p in result["mcp_products"]]
+    assert not any("Тунець" in title for title in titles)
+    assert any("Вода мінеральна акційна" in title for title in titles)
+    assert any(entry.get("status") == "llm_rejected" for entry in result["picker_trace"])
+
+
+@pytest.mark.asyncio
+async def test_picker_judge_reformulates_marinated_mushrooms_to_fresh() -> None:
+    catalog = {
+        "печериці": {
+            "id": "m1",
+            "productId": "m1",
+            "title": "Печериці мариновані",
+            "price": 109.0,
+            "is_private_label": False,
+            "category": "vegetables",
+        },
+        "печериці свіжі": {
+            "id": "m2",
+            "productId": "m2",
+            "title": "Печериці свіжі 400 г",
+            "price": 85.0,
+            "is_private_label": False,
+            "category": "vegetables",
+        },
+    }
+    seed = [{"query": "Печериці", "category": "vegetables", "quantity": 1, "prefer_private_label": False}]
+    judge = RejectMarinatedJudge()
+    service = PickerService(
+        product_service=FakeProductService(catalog), query_formulator=MappingFormulator(seed), judge=judge
+    )
+    result = await service.run(_make_state(IntentEnum.PARTY, budget=2000.0, people_count=1))
+    titles = [str(p.get("title", "")) for p in result["mcp_products"]]
+    assert any("Печериці свіжі" in title for title in titles)
+    assert not any("мариновані" in title for title in titles)
+    assert any(entry.get("status") == "llm_reformulated" for entry in result["picker_trace"])
+    assert len(judge.calls) == 1
