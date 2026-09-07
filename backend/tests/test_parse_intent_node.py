@@ -89,6 +89,39 @@ async def test_parse_intent_empty_text() -> None:
 
 
 @pytest.mark.asyncio
+async def test_parse_intent_fallback_extracts_grill_items() -> None:
+    initial_state: SilpoAgentState = {
+        "audio_bytes": None,
+        "user_text": "Хочу зібрати друзів на гриль: курка, свіжі печериці та овочі, безалкогольне пиво й одноразовий посуд, 5 людей до 5000 грн",
+        "intent": None,
+        "budget": 0.0,
+        "people_count": None,
+        "dietary_restrictions": [],
+        "raw_item_requests": [],
+        "calculated_items": [],
+        "mcp_products": [],
+        "total_price": 0.0,
+        "attempts": 0,
+        "max_attempts": 3,
+        "is_budget_exceeded": False,
+        "cart_url": None,
+        "summary_message": "",
+        "audio_url": None,
+        "messages": [],
+    }
+    result = await parse_intent_node(initial_state)
+
+    assert result["intent"] == IntentEnum.PARTY
+    assert result["budget"] == 5000.0
+    assert result["people_count"] == 5
+    joined = " ".join(result["raw_item_requests"]).lower()
+    assert "курка" in joined
+    assert "печериці" in joined
+    assert "безалкогольне" in joined
+    assert "посуд" in joined
+
+
+@pytest.mark.asyncio
 async def test_parse_intent_marks_unsupported_text() -> None:
     initial_state: SilpoAgentState = {
         "audio_bytes": None,

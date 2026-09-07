@@ -77,6 +77,12 @@ _RELEVANCE_BLOCKS: tuple[tuple[tuple[str, ...], tuple[str, ...], str], ...] = (
 _NON_ALCOHOLIC_QUERY_MARKERS = ("безалкогольн", "non-alcoholic", "non alcoholic", "zero alcohol")
 _NON_ALCOHOLIC_TITLE_MARKERS = ("безалкогольн", "б/а", "0.0", "0,0", "0%", "zero")
 
+_DISPOSABLE_GOAL_MARKERS = ("одноразов", "disposable", "паперов", "пластик")
+_REUSABLE_TITLE_MARKERS = ("термочашка", "термокружка", "термостакан", "термос", "багаторазов", "reusable", "екочашка")
+_DISPOSABLE_TITLE_MARKERS = ("одноразов", "паперов", "пластик", "disposable")
+
+_BUDGET_FILL_LOW = 0.70
+
 _ALCOHOLIC_TITLE_MARKERS = (
     "віскі",
     "whisky",
@@ -160,23 +166,34 @@ def violates_hard_constraints(title: str, goal: str) -> tuple[bool, str]:
     title_is_alcoholic = any(marker in title_norm for marker in _ALCOHOLIC_TITLE_MARKERS)
     if goal_demands_free and not title_is_free and title_is_alcoholic:
         return True, "алкогольний товар при безалкогольній цілі"
+    goal_disposable = any(marker in goal_norm for marker in _DISPOSABLE_GOAL_MARKERS)
+    title_reusable = any(marker in title_norm for marker in _REUSABLE_TITLE_MARKERS)
+    title_disposable = any(marker in title_norm for marker in _DISPOSABLE_TITLE_MARKERS)
+    if goal_disposable and title_reusable and not title_disposable:
+        return True, "багаторазовий посуд замість одноразового"
     return False, ""
 
 
 class PickerAdvisor(Protocol):
-    async def choose(self, candidates: list[dict[str, Any]], remaining: float, goal: str) -> int | None:
-        """Returns the chosen candidate index, or None to abstain (greedy scoring decides)."""
+    async def choose(
+        self, candidates: list[dict[str, Any]], remaining: float, goal: str, query: str = ""
+    ) -> int | None:
+        """Returns the chosen candidate index, ADVISOR_VETO to reject all, or None to abstain."""
         ...
 
 
 class GreedyAdvisor:
-    async def choose(self, candidates: list[dict[str, Any]], remaining: float, goal: str) -> int | None:
+    async def choose(
+        self, candidates: list[dict[str, Any]], remaining: float, goal: str, query: str = ""
+    ) -> int | None:
         return None
 
 
 class GeminiPickerAdvisor:
-    async def choose(self, candidates: list[dict[str, Any]], remaining: float, goal: str) -> int | None:
-        return await gemini_service.choose_picker_candidate(candidates, remaining, goal)
+    async def choose(
+        self, candidates: list[dict[str, Any]], remaining: float, goal: str, query: str = ""
+    ) -> int | None:
+        return await gemini_service.choose_picker_candidate(candidates, remaining, goal, query)
 
 
 class PickerQueryFormulator(Protocol):
@@ -229,12 +246,14 @@ class PickerService:
         self._formulator = query_formulator if query_formulator is not None else PassthroughFormulator()
         self._judge = judge if judge is not None else GreedyJudge()
 
-    async def _choose_index(self, shortlist: list[dict[str, Any]], remaining: float, goal: str) -> int:
+    async def _choose_index(self, shortlist: list[dict[str, Any]], remaining: float, goal: str, query: str) -> int:
         try:
-            index = await self._advisor.choose(shortlist, remaining, goal)
+            index = await self._advisor.choose(shortlist, remaining, goal, query)
         except Exception as exc:  # noqa: BLE001 - advisor failure falls back to greedy
             logger.debug("Picker advisor failed, using greedy fallback: %s", exc)
             return 0
+        if index == gemini_service.ADVISOR_VETO:
+            return index
         if index is None or not 0 <= index < len(shortlist):
             return 0
         return index
@@ -376,6 +395,54 @@ class PickerService:
             trace.append({"tool": "search_products", "query": query, "status": "not_found"})
         return product
 
+    @staticmethod
+    def _top_up_to_band(
+        accepted: list[dict[str, Any]], budget: float, remaining: float, trace: list[dict[str, Any]]
+    ) -> float:
+        """Raises core food quantities round-robin until the cart reaches the fill band.
+
+        Never exceeds the hard budget ceiling and needs no extra searches: it only
+        grows quantities of already accepted products. Charcoal and promos are out
+        of scope — nobody needs four bags of coal for a bigger budget.
+        """
+        target = round(budget * _BUDGET_FILL_LOW, 2)
+        total = round(budget - remaining, 2)
+        if total >= target:
+            return remaining
+        core = [product for product in accepted if str(product.get("category", "")) not in ("promo", "accessories")]
+        if not core:
+            return remaining
+        while total < target:
+            progressed = False
+            for product in core:
+                try:
+                    unit = float(product.get("price", 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    continue
+                if unit <= 0 or unit > remaining or total + unit > budget:
+                    continue
+                try:
+                    quantity = int(product.get("quantity", 1) or 1)
+                except (TypeError, ValueError):
+                    quantity = 1
+                product["quantity"] = quantity + 1
+                total = round(total + unit, 2)
+                remaining = round(remaining - unit, 2)
+                progressed = True
+                trace.append(
+                    {
+                        "tool": "search_products",
+                        "query": str(product.get("title", "")),
+                        "status": "topped_up",
+                        "product_id": product.get("id"),
+                    }
+                )
+                if total >= target:
+                    break
+            if not progressed:
+                break
+        return remaining
+
     async def run(self, state: SilpoAgentState) -> dict[str, Any]:
         planner = get_domain_planner(state.get("intent"))
         budget = state.get("budget", 0.0) or 0.0
@@ -391,7 +458,7 @@ class PickerService:
             state.get("delivery_address")
         )
 
-        seed = planner.plan(state)
+        seed = list(state.get("calculated_items") or []) or planner.plan(state)
         try:
             formulated = await self._formulator.formulate(goal, seed)
         except Exception as exc:  # noqa: BLE001 - formulation failure keeps the planner seed
@@ -410,7 +477,7 @@ class PickerService:
             outstanding = set(state.get("unfulfilled_requests", []) or [])
             if previous and outstanding:
                 seed = [item for item in seed if str(item.get("query", "")) in outstanding]
-                accepted = previous
+                accepted = [dict(product) for product in previous]
                 if remaining != math.inf:
                     previous_total = sum(
                         float(p.get("price", 0.0) or 0.0) * int(p.get("quantity", 1) or 1) for p in previous
@@ -500,7 +567,19 @@ class PickerService:
                     }
                 )
                 continue
-            index = await self._choose_index([product], remaining if remaining != math.inf else budget, goal)
+            index = await self._choose_index([product], remaining if remaining != math.inf else budget, goal, query)
+            if index == gemini_service.ADVISOR_VETO:
+                unfulfilled.append(query)
+                trace.append(
+                    {
+                        "tool": "choose_picker_candidate",
+                        "query": query,
+                        "status": "advisor_veto",
+                        "reason": "advisor rejected every candidate for the query",
+                        "product_id": product.get("id"),
+                    }
+                )
+                continue
             chosen = [product][index]
             score = planner.score(chosen, remaining if remaining != math.inf else 10**12)
             if score < 0:
@@ -518,6 +597,9 @@ class PickerService:
         categories = {str(p.get("category")) for p in accepted if p.get("category")}
         coverage_ok = all(req in categories for req in planner.min_coverage())
         is_met = bool(accepted) and coverage_ok and not unfulfilled
+
+        if hard and budget > 0 and remaining != math.inf and accepted:
+            remaining = self._top_up_to_band(accepted, budget, remaining, trace)
 
         if hard and budget > 0 and is_met and remaining != math.inf:
             floor = settings.MIN_ITEM_PRICE_FLOOR

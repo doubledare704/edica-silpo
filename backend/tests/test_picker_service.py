@@ -197,7 +197,9 @@ async def test_picker_respects_max_steps() -> None:
 @pytest.mark.asyncio
 async def test_picker_falls_back_to_greedy_when_advisor_fails() -> None:
     class ExplodingAdvisor:
-        async def choose(self, candidates: list[dict[str, Any]], remaining: float, goal: str) -> int | None:
+        async def choose(
+            self, candidates: list[dict[str, Any]], remaining: float, goal: str, query: str = ""
+        ) -> int | None:
             raise RuntimeError("llm down")
 
     service = PickerService(product_service=FakeProductService(_party_catalog()), advisor=ExplodingAdvisor())  # type: ignore[arg-type]
@@ -211,7 +213,9 @@ async def test_picker_uses_advisor_choice() -> None:
         def __init__(self) -> None:
             self.calls = 0
 
-        async def choose(self, candidates: list[dict[str, Any]], remaining: float, goal: str) -> int | None:
+        async def choose(
+            self, candidates: list[dict[str, Any]], remaining: float, goal: str, query: str = ""
+        ) -> int | None:
             self.calls += 1
             return 0
 
@@ -220,6 +224,43 @@ async def test_picker_uses_advisor_choice() -> None:
     result = await service.run(_make_state(IntentEnum.PARTY, budget=2000.0))
     assert advisor.calls > 0
     assert result["picker_accepted"] >= 3
+
+
+@pytest.mark.asyncio
+async def test_picker_advisor_receives_original_query() -> None:
+    class RecordingAdvisor:
+        def __init__(self) -> None:
+            self.seen: list[str] = []
+
+        async def choose(
+            self, candidates: list[dict[str, Any]], remaining: float, goal: str, query: str = ""
+        ) -> int | None:
+            self.seen.append(query)
+            return 0
+
+    advisor = RecordingAdvisor()
+    service = PickerService(product_service=FakeProductService(_party_catalog()), advisor=advisor)  # type: ignore[arg-type]
+    await service.run(_make_state(IntentEnum.PARTY, budget=2000.0, people_count=1))
+    assert advisor.seen
+    assert advisor.seen[0] == "Ошийник свинячий"
+    assert all(query for query in advisor.seen)
+
+
+@pytest.mark.asyncio
+async def test_picker_advisor_veto_rejects_candidate() -> None:
+    from app.services.gemini_service import ADVISOR_VETO
+
+    class VetoAdvisor:
+        async def choose(
+            self, candidates: list[dict[str, Any]], remaining: float, goal: str, query: str = ""
+        ) -> int | None:
+            return ADVISOR_VETO
+
+    service = PickerService(product_service=FakeProductService(_party_catalog()), advisor=VetoAdvisor())  # type: ignore[arg-type]
+    result = await service.run(_make_state(IntentEnum.PARTY, budget=5000.0, people_count=1))
+    assert result["picker_accepted"] == 0
+    assert len(result["unfulfilled_requests"]) > 0
+    assert any(entry.get("status") == "advisor_veto" for entry in result["picker_trace"])
 
 
 @pytest.mark.asyncio
@@ -700,7 +741,32 @@ def test_violates_hard_constraints_ignores_alcohol_without_goal_demand() -> None
 
 @pytest.mark.asyncio
 async def test_picker_rejects_whiskey_promo_under_non_alcoholic_goal() -> None:
-    service = PickerService(product_service=PromoFake(_party_catalog(), _promo_mix()))
+    catalog = dict(_party_catalog())
+    catalog["пиво безалкогольне"] = {
+        "id": "b1",
+        "productId": "b1",
+        "title": "Пиво безалкогольне 0.0%",
+        "price": 120.0,
+        "is_private_label": False,
+        "category": "drinks",
+    }
+    catalog["курка для гриля"] = {
+        "id": "c1",
+        "productId": "c1",
+        "title": "Куряче філе для гриля",
+        "price": 180.0,
+        "is_private_label": False,
+        "category": "meat",
+    }
+    catalog["вода"] = {
+        "id": "d1",
+        "productId": "d1",
+        "title": "Вода",
+        "price": 22.0,
+        "is_private_label": False,
+        "category": "drinks",
+    }
+    service = PickerService(product_service=PromoFake(catalog, _promo_mix()))
     result = await service.run(
         _make_state(
             IntentEnum.PARTY,
@@ -757,3 +823,125 @@ async def test_picker_judge_reformulates_marinated_mushrooms_to_fresh() -> None:
     assert not any("мариновані" in title for title in titles)
     assert any(entry.get("status") == "llm_reformulated" for entry in result["picker_trace"])
     assert len(judge.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_picker_prefers_calculated_items_seed() -> None:
+    items = [
+        {"query": "Курка для гриля", "category": "meat", "quantity": 2, "dish": "Курка-гриль"},
+        {"query": "Печериці свіжі", "category": "vegetables", "quantity": 1, "dish": "Печериці на грилі"},
+    ]
+    catalog = {
+        "курка для гриля": {
+            "id": "c1",
+            "productId": "c1",
+            "title": "Куряче філе для гриля",
+            "price": 180.0,
+            "is_private_label": False,
+            "category": "meat",
+        },
+        "печериці свіжі": {
+            "id": "m2",
+            "productId": "m2",
+            "title": "Печериці свіжі 400 г",
+            "price": 85.0,
+            "is_private_label": False,
+            "category": "vegetables",
+        },
+    }
+    service = PickerService(product_service=FakeProductService(catalog))
+    result = await service.run(_make_state(IntentEnum.PARTY, budget=5000.0, people_count=5, calculated_items=items))
+    titles = [str(p.get("title", "")) for p in result["mcp_products"]]
+    assert any("Куряче" in title for title in titles)
+    assert any("Печериці свіжі" in title for title in titles)
+    assert not any("Ошийник" in title for title in titles)
+
+
+@pytest.mark.asyncio
+async def test_picker_tops_up_core_quantities_into_budget_band() -> None:
+    service = PickerService(product_service=FakeProductService(_party_catalog()))
+    result = await service.run(_make_state(IntentEnum.PARTY, budget=3000.0, people_count=5))
+    total = sum(float(p["price"]) * int(p["quantity"]) for p in result["mcp_products"])
+    assert 2100.0 <= total <= 3000.0
+    assert any(entry.get("status") == "topped_up" for entry in result["picker_trace"])
+
+
+def test_violates_hard_constraints_blocks_reusable_cup_for_disposable_goal() -> None:
+    violated, reason = violates_hard_constraints(
+        "Термочашка Eat&Drink 500 мл", "request=одноразові стаканчики для пікніка"
+    )
+    assert violated is True
+    assert reason
+
+
+def test_violates_hard_constraints_allows_disposable_cups() -> None:
+    assert (
+        violates_hard_constraints("Стаканчики паперові одноразові 50 шт", "request=одноразові стаканчики")[0] is False
+    )
+
+
+def test_violates_hard_constraints_ignores_cups_without_goal_demand() -> None:
+    assert violates_hard_constraints("Термочашка Eat&Drink 500 мл", "request=пікнік")[0] is False
+
+
+@pytest.mark.asyncio
+async def test_picker_rejects_reusable_cup_promo_for_picnic() -> None:
+    catalog = dict(_party_catalog())
+    catalog["одноразові стаканчики"] = {
+        "id": "s1",
+        "productId": "s1",
+        "title": "Стаканчики паперові одноразові 50 шт",
+        "price": 45.0,
+        "is_private_label": False,
+        "category": "accessories",
+    }
+    catalog["курка для гриля"] = {
+        "id": "c1",
+        "productId": "c1",
+        "title": "Куряче філе для гриля",
+        "price": 180.0,
+        "is_private_label": False,
+        "category": "meat",
+    }
+    catalog["вода"] = {
+        "id": "d1",
+        "productId": "d1",
+        "title": "Вода",
+        "price": 22.0,
+        "is_private_label": False,
+        "category": "drinks",
+    }
+    promos = [
+        {
+            "id": "c1",
+            "productId": "c1",
+            "title": "Термочашка Eat&Drink 500 мл",
+            "price": 199.0,
+            "is_private_label": False,
+            "quantity": 1,
+            "category": "promo",
+        },
+        {
+            "id": "w2",
+            "productId": "w2",
+            "title": "Вода мінеральна акційна",
+            "price": 20.0,
+            "is_private_label": False,
+            "quantity": 1,
+            "category": "promo",
+        },
+    ]
+    service = PickerService(product_service=PromoFake(catalog, promos))
+    result = await service.run(
+        _make_state(
+            IntentEnum.PARTY,
+            budget=5000.0,
+            people_count=1,
+            user_text="пікнік, потрібні одноразові стаканчики",
+            raw_item_requests=["одноразові стаканчики", "вода"],
+        )
+    )
+    titles = [str(p.get("title", "")) for p in result["mcp_products"]]
+    assert not any("Термочашка" in title for title in titles)
+    assert any("Вода мінеральна акційна" in title for title in titles)
+    assert any(entry.get("status") == "rejected_constraint" for entry in result["picker_trace"])

@@ -1,3 +1,4 @@
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -100,6 +101,116 @@ async def test_transcribe_audio_missing_key_raises(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
         get_genai_client()
+
+
+@pytest.mark.asyncio
+async def test_choose_picker_candidate_includes_original_query(monkeypatch) -> None:
+    import app.services.gemini_service as svc
+
+    monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
+    monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
+
+    mock_response = MagicMock()
+    mock_response.text = '{"index": 0}'
+
+    mock_client = MagicMock()
+    mock_client.aio = MagicMock()
+    mock_client.aio.models = MagicMock()
+    mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+    with patch("app.services.gemini_service.get_genai_client", return_value=mock_client):
+        from app.services.gemini_service import choose_picker_candidate
+
+        candidates = [{"title": "Куряче філе", "price": 180.0, "quantity": 1}]
+        assert await choose_picker_candidate(candidates, 500.0, "grill goal", "Курка для гриля") == 0
+        prompt = mock_client.aio.models.generate_content.call_args[1]["contents"][0]
+        assert "Курка для гриля" in prompt
+
+
+@pytest.mark.asyncio
+async def test_choose_picker_candidate_reject_veto(monkeypatch) -> None:
+    import app.services.gemini_service as svc
+
+    monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
+    monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
+
+    mock_response = MagicMock()
+    mock_response.text = '{"reject": true}'
+
+    mock_client = MagicMock()
+    mock_client.aio = MagicMock()
+    mock_client.aio.models = MagicMock()
+    mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+    with patch("app.services.gemini_service.get_genai_client", return_value=mock_client):
+        from app.services.gemini_service import ADVISOR_VETO, choose_picker_candidate
+
+        candidates = [{"title": "Ошийник свинячий", "price": 240.0, "quantity": 1}]
+        assert await choose_picker_candidate(candidates, 500.0, "chicken goal", "Курка для гриля") == ADVISOR_VETO
+
+
+def test_extract_json_list_handles_fences_and_prose() -> None:
+    from app.services.gemini_service import _extract_json_list
+
+    assert json.loads(_extract_json_list('[{"query": "Курка"}]')) == [{"query": "Курка"}]
+    fenced = '```json\n[{"query": "Курка"}]\n```'
+    assert json.loads(_extract_json_list(fenced)) == [{"query": "Курка"}]
+    prose = 'Ось список покупок:\n[{"query": "Курка"}]\nСмачного!'
+    assert json.loads(_extract_json_list(prose)) == [{"query": "Курка"}]
+
+
+@pytest.mark.asyncio
+async def test_research_menu_omits_json_mime_type_with_search_tool(monkeypatch) -> None:
+    import app.services.gemini_service as svc
+
+    monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
+    monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
+
+    captured: dict[str, object] = {}
+
+    async def _fake_agenerate(*args: object, **kwargs: object) -> object:
+        captured.update(kwargs)
+        response = MagicMock()
+        response.text = (
+            'Ось меню:\n[{"query": "Курка для гриля", "category": "meat", "quantity": 2, "dish": "Курка-гриль"}]'
+        )
+        return response
+
+    monkeypatch.setattr(svc, "_agenerate", _fake_agenerate)
+    from app.services.gemini_service import research_menu
+
+    menu = await research_menu("grill goal")
+    assert menu == [
+        {
+            "query": "Курка для гриля",
+            "category": "meat",
+            "quantity": 2,
+            "prefer_private_label": False,
+            "dish": "Курка-гриль",
+        }
+    ]
+    config = captured["config"]
+    assert getattr(config, "response_mime_type", None) in (None, "text/plain")
+    assert getattr(config, "tools", None)
+
+
+@pytest.mark.asyncio
+async def test_formulate_picker_queries_parses_bare_list(monkeypatch) -> None:
+    import app.services.gemini_service as svc
+
+    monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
+    monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
+
+    async def _fake_agenerate(*args: object, **kwargs: object) -> object:
+        response = MagicMock()
+        response.text = '[{"query": "Курка для гриля", "category": "meat", "quantity": 2}]'
+        return response
+
+    monkeypatch.setattr(svc, "_agenerate", _fake_agenerate)
+    from app.services.gemini_service import formulate_picker_queries
+
+    seed = await formulate_picker_queries("grill goal", [])
+    assert seed == [{"query": "Курка для гриля", "category": "meat", "quantity": 2, "prefer_private_label": False}]
 
 
 @pytest.mark.asyncio

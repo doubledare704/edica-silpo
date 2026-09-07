@@ -30,6 +30,7 @@ START -> stt -> parse_intent -> plan_domain_logic -> picker
 - Fixed live cart write: bypass stale `add_or_update_cart_products` SDK wrapper, send `products` array via `call_tool` (server rejects `items` with MCP -32602).
 - Migrated to `silpo-py-mcp>=0.3.0` context-first API: `shopping_context` in state, batch search, server-side promo/price filters, slug-based details/similar, typed slots and cart writes.
 - Cart write validates items (UUID productId + companyId/branchId) before touching the live cart, so static-fallback SKUs fail fast instead of wiping the cart and falling back to a mock URL.
+- Bumped to `silpo-py-mcp>=0.3.1`: mock cart tools accept only `shoppingCartId` (legacy `cartId` alias removed, matching live schema), certificates optional; typed client unchanged and already sends `shoppingCartId`.
 - Live search never fabricates static-fallback products when a shopping context exists (real mode): misses stay misses and surface as `unfulfilled_requests`; the static catalog is demo/offline-only.
 - Stream request carries the frontend's selected store address (`delivery_address`) into agent state so picker context and cart fulfillment resolve against the user's chosen Silpo.
 - Official Silpo cart flow: cart-first context with slot revalidation, delivery update on change, upsert without clearing, post-write verify (validations/loyalty/checkout links); picker retries only previous misses.
@@ -64,7 +65,13 @@ npm run test:run --prefix frontend
 - [x] Review hardening of relevance gate: grill-modifier false accept (`Курка для гриля` vs `Овочі для гриля`), `group:` prefix collision, positive-case locks.
 - [x] Goal-aligned picker loop: LLM query formulation from user request + LLM judge auditing survivors (accept/reject/suggest-query), deterministic gate as pre-filter, offline fallback unchanged.
 - [x] Goal-constraint enforcement on all paths: deterministic alcohol backstop + LLM judge for promos, qualifier preservation (fresh/non-alcoholic) end-to-end.
-- [ ] Party planner honors `raw_item_requests` (chicken/mushrooms/non-alcoholic) instead of hardcoded seed queries.
-- [ ] Picker advisor prompt: pass original query + `{"reject": true}` veto; intent prompt few-shots for grill/non-alcoholic extraction.
-- Run gated live Gemini/MCP smoke tests with real credentials.
+- [x] Menu-grounded research + budget-fill band: grounded research_menu in plan node, picker prefers calculated_items, core quantity top-up to 70% band, disposable-ware backstop.
+- [x] Party planner honors `raw_item_requests` (chicken/mushrooms/non-alcoholic) instead of hardcoded seed queries.
+- [x] Picker advisor prompt: pass original query + `{"reject": true}` veto; intent prompt few-shots for grill/non-alcoholic extraction.
+- [x] Grounded-research 400 fix: drop `response_mime_type` with the search tool (API rejects the combo), bare-JSON prompt + list extraction (live smoke caught it always falling back).
+- [ ] Run gated live Gemini/MCP smoke tests with real credentials.
+  Status: parse/formulate/judge verified live OK (`test_gemini_live.py`, throttled, quota-aware skips);
+  grounded `research_menu` still unverified live — key's token quota starved (light calls pass, grounded 429s);
+  re-run `test_gemini_live.py::test_live_research_menu_smoke` after quota reset. MCP live opt-in only
+  (`SILPO_LIVE_SMOKE=1`, needs completed OAuth login), skipped by default.
 - Keep `.docs/LANGRAPH_DISCOVERY.md` as historical reference only; it is not the active architecture contract.

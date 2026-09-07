@@ -77,7 +77,56 @@ def test_budget_planner_covers_weekly_staple_categories() -> None:
     assert all(i["prefer_private_label"] for i in items)
 
 
-# ── OFFICE ────────────────────────────────────────────────────────────────────
+# ── PARTY raw_item_requests ───────────────────────────────────────────────────
+
+
+def test_party_planner_honors_chicken_mushroom_non_alcoholic_requests() -> None:
+    planner = PartyDomainPlanner()
+    state = _make_state(
+        IntentEnum.PARTY,
+        people_count=5,
+        raw_item_requests=["курка для гриля", "печериці свіжі", "овочі для гриля", "пиво безалкогольне"],
+    )
+    items = planner.plan(state)
+    queries = [str(i["query"]).lower() for i in items]
+    assert any("курка" in query for query in queries)
+    assert not any("ошийник" in query or "свиняч" in query or "свин" in query for query in queries)
+    assert any("печериці" in query for query in queries)
+    assert any("безалкогольне" in query for query in queries)
+    assert {"meat", "vegetables", "drinks"} <= {i["category"] for i in items}
+
+
+def test_party_planner_empty_raw_keeps_classic_seed() -> None:
+    planner = PartyDomainPlanner()
+    items = planner.plan(_make_state(IntentEnum.PARTY, people_count=4))
+    queries = [str(i["query"]) for i in items]
+    assert "Ошийник свинячий" in queries
+    assert "Овочі для гриля Премія" in queries
+    assert "Вода мінеральна" in queries
+    assert "Вугілля деревне" in queries
+
+
+def test_party_planner_backfills_missing_coverage_without_pork() -> None:
+    planner = PartyDomainPlanner()
+    state = _make_state(IntentEnum.PARTY, people_count=3, raw_item_requests=["печериці", "пиво безалкогольне"])
+    items = planner.plan(state)
+    queries = [str(i["query"]).lower() for i in items]
+    assert any("печериці" in query for query in queries)
+    assert any("курка" in query for query in queries)
+    assert not any("ошийник" in query or "свиняч" in query for query in queries)
+    assert {"meat", "vegetables", "drinks"} <= {i["category"] for i in items}
+
+
+def test_party_planner_raw_quantities_shrink_on_retry() -> None:
+    planner = PartyDomainPlanner()
+    raw = ["курка", "печериці", "овочі", "пиво безалкогольне"]
+    normal = planner.plan(_make_state(IntentEnum.PARTY, people_count=6, raw_item_requests=raw))
+    retry = planner.plan(
+        _make_state(IntentEnum.PARTY, people_count=6, raw_item_requests=raw, is_budget_exceeded=True, attempts=1)
+    )
+    assert sum(i["quantity"] for i in retry) <= sum(i["quantity"] for i in normal)
+    assert sum(i["quantity"] for i in retry) <= 5
+    assert all(i["quantity"] >= 1 for i in retry)
 
 
 def test_office_planner_returns_items() -> None:

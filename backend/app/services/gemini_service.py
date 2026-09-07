@@ -16,6 +16,9 @@ from ..intent_schema import ParsedIntentSchema, extract_intent_fallback
 
 logger = logging.getLogger(__name__)
 
+#: Sentinel returned by choose_picker_candidate when the advisor vetoes every candidate.
+ADVISOR_VETO = -1
+
 
 def get_genai_client() -> genai.Client:
     """Create a Gemini client for the current operation."""
@@ -50,6 +53,15 @@ def _extract_json_object(raw: str) -> str:
         if match:
             return match.group(0)
     return cleaned
+
+
+def _extract_json_list(raw: str) -> str:
+    """Extracts the first [...] JSON list, tolerating fences and surrounding prose."""
+    cleaned = raw.strip()
+    if cleaned.startswith("["):
+        return cleaned
+    match = re.search(r"\[.*\]", cleaned, re.DOTALL)
+    return match.group(0) if match else cleaned
 
 
 async def transcribe_audio(audio_bytes: bytes, mime: str = "audio/webm") -> str:
@@ -91,8 +103,13 @@ async def choose_picker_candidate(
     candidates: list[dict[str, Any]],
     remaining: float,
     goal: str,
+    query: str = "",
 ) -> int | None:
-    """Asks Gemini to choose one candidate index, or None to fall back to greedy scoring."""
+    """Asks Gemini to choose one candidate index, or None to fall back to greedy scoring.
+
+    The original search query is passed so the advisor judges fit against what was
+    asked, not just the goal. Returns ADVISOR_VETO when no candidate fits.
+    """
     if settings.GEMINI_MOCK_MODE or not settings.GEMINI_API_KEY or not candidates:
         return None
     try:
@@ -100,10 +117,13 @@ async def choose_picker_candidate(
             f"{i}. {c.get('title', '?')} — {c.get('price', '?')} грн x{c.get('quantity', 1)}"
             for i, c in enumerate(candidates)
         ]
+        request_line = f'Початковий запит: "{query}". ' if query.strip() else ""
         prompt = (
-            "Ти асистент Silpo Smart Shopper. Ціль: " + goal + ". "
+            "Ти асистент Silpo Smart Shopper. " + request_line + "Ціль: " + goal + ". "
             f"Залишок бюджету: {remaining:.2f} грн. Обери один індекс зі списку, "
-            'який найкраще відповідає цілі. Відповідай JSON строго {"index": N}.\n' + "\n".join(lines)
+            "який найкраще відповідає запиту та цілі. "
+            'Відповідай JSON строго {"index": N} або {"reject": true}, якщо жоден кандидат не підходить.\n'
+            + "\n".join(lines)
         )
         response = await _agenerate(
             model=settings.GEMINI_MODEL,
@@ -117,14 +137,17 @@ async def choose_picker_candidate(
         text = response.text
         if not text or not text.strip():
             return None
-        index = int(json.loads(_extract_json_object(text)).get("index", -1))
+        data = json.loads(_extract_json_object(text))
+        if isinstance(data, dict) and data.get("reject") is True:
+            return ADVISOR_VETO
+        index = int(data.get("index", -1)) if isinstance(data, dict) else -1
         return index if 0 <= index < len(candidates) else None
     except Exception as exc:  # noqa: BLE001 - advisor failure must fall back to greedy
         logger.debug("Gemini picker advisor failed, using greedy fallback: %s", exc)
         return None
 
 
-def _sanitize_seed(data: Any) -> list[dict[str, Any]] | None:
+def _sanitize_seed(data: Any, note_keys: tuple[str, ...] = ()) -> list[dict[str, Any]] | None:
     """Validates an LLM-produced seed list; None means keep the planner fallback."""
     if not isinstance(data, list) or not data:
         return None
@@ -140,14 +163,17 @@ def _sanitize_seed(data: Any) -> list[dict[str, Any]] | None:
         except (TypeError, ValueError):
             quantity = 1
         category = entry.get("category")
-        seed.append(
-            {
-                "query": query.strip(),
-                "category": category if isinstance(category, str) and category else "general",
-                "quantity": max(1, quantity),
-                "prefer_private_label": bool(entry.get("prefer_private_label", False)),
-            }
-        )
+        item = {
+            "query": query.strip(),
+            "category": category if isinstance(category, str) and category else "general",
+            "quantity": max(1, quantity),
+            "prefer_private_label": bool(entry.get("prefer_private_label", False)),
+        }
+        for key in note_keys:
+            note = entry.get(key)
+            if isinstance(note, str) and note.strip():
+                item[key] = note.strip()
+        seed.append(item)
     return seed or None
 
 
@@ -166,11 +192,12 @@ async def formulate_picker_queries(
             'Відповідай JSON строго списком [{"query": "...", '
             '"category": "meat|vegetables|drinks|accessories|general", "quantity": N}]. '
             "Категорії: курка/м'ясо — meat, гриби — vegetables, овочі — vegetables, "
-            'напої — drinks, вугілля — accessories. Приклад: "гриль з куркою, свіжими печерицями та безалкогольним пивом" -> '
+            'напої — drinks, вугілля та одноразовий посуд — accessories. Приклад: "гриль з куркою, свіжими печерицями та безалкогольним пивом" -> '
             '[{"query": "Курка для гриля", "category": "meat", "quantity": 2}, '
             '{"query": "Печериці свіжі", "category": "vegetables", "quantity": 1}, '
             '{"query": "Овочі для гриля", "category": "vegetables", "quantity": 2}, '
-            '{"query": "Пиво безалкогольне", "category": "drinks", "quantity": 2}].'
+            '{"query": "Пиво безалкогольне", "category": "drinks", "quantity": 2}, '
+            '{"query": "Стаканчики одноразові", "category": "accessories", "quantity": 1}].'
         )
         response = await _agenerate(
             model=settings.GEMINI_MODEL,
@@ -184,9 +211,49 @@ async def formulate_picker_queries(
         text = response.text
         if not text or not text.strip():
             return None
-        return _sanitize_seed(json.loads(_extract_json_object(text)))
+        return _sanitize_seed(json.loads(_extract_json_list(text)))
     except Exception as exc:  # noqa: BLE001 - formulation failure must fall back to planner seed
         logger.debug("Gemini query formulation failed, using planner fallback: %s", exc)
+        return None
+
+
+async def research_menu(goal: str) -> list[dict[str, Any]] | None:
+    """Grounded menu research: dishes plus a shopping list for the goal.
+
+    Uses Google Search grounding so dish and qualifier choices reflect real
+    recipes. Structured output is intentionally NOT requested: the API rejects
+    response_mime_type together with the google_search tool, so the prompt
+    demands bare JSON and _extract_json_list recovers the list from prose.
+    None means keep the deterministic planner fallback.
+    """
+    if settings.GEMINI_MOCK_MODE or not settings.GEMINI_API_KEY:
+        return None
+    try:
+        prompt = (
+            "Ти асистент Silpo Smart Shopper. Ціль: " + goal + ". "
+            "Досліди в інтернеті 2-3 прості рецепти страв для цієї події "
+            "(наприклад курка-гриль та овочі-гриль для пікніка) і склади список покупок "
+            "українською (3-7 позицій) з кількістю на вказану кількість людей. "
+            "Зберігай уточнення з цілі (свіжі, безалкогольне, одноразовий посуд). "
+            "Відповідай ТІЛЬКИ JSON-списком без пояснень: "
+            '[{"query": "...", "category": "meat|vegetables|drinks|accessories|general", '
+            '"quantity": N, "dish": "страва"}].'
+        )
+        response = await _agenerate(
+            model=settings.GEMINI_MODEL,
+            contents=[prompt],
+            config=types.GenerateContentConfig(
+                temperature=0.2,
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            ),
+        )
+        text = response.text
+        if not text or not text.strip():
+            return None
+        return _sanitize_seed(json.loads(_extract_json_list(text)), ("dish", "note"))
+    except Exception as exc:  # noqa: BLE001 - research failure must fall back to planner seed
+        logger.debug("Gemini menu research failed, using planner fallback: %s", exc)
         return None
 
 
@@ -218,7 +285,7 @@ async def judge_picker_candidate(
             "Оцінюй відповідність саме цілі: відхиляй категорії, яких ціль не містить "
             "(риба та морепродукти, алкоголь при безалкогольній цілі, засоби гігієни "
             "для продуктового кошика), і порушення уточнень (мариновані замість свіжих, "
-            "алкогольні замість безалкогольних). "
+            "алкогольні замість безалкогольних, багаторазові термочашки замість одноразових). "
             'Відповідай JSON строго {"verdict": "accept"|"reject", "reason": "...", '
             '"suggested_query": "..."|null}.'
         )

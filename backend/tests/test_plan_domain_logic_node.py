@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from app.enums import IntentEnum
 from app.nodes.plan_domain_logic import plan_domain_logic_node
@@ -63,3 +65,40 @@ async def test_plan_domain_logic_budget_reduction_on_retry() -> None:
     assert len(items) > 0
     quantities = [i["quantity"] for i in items]
     assert sum(quantities) <= 5
+
+
+@pytest.mark.asyncio
+async def test_plan_domain_logic_uses_researched_menu(monkeypatch) -> None:
+    from app.services import gemini_service
+
+    menu = [
+        {"query": "Курка для гриля", "category": "meat", "quantity": 2, "dish": "Курка-гриль"},
+        {"query": "Печериці свіжі", "category": "vegetables", "quantity": 1, "dish": "Печериці на грилі"},
+    ]
+
+    async def _researched(goal: str) -> list[dict[str, Any]] | None:
+        assert "гриль" in goal.lower()
+        return menu
+
+    monkeypatch.setattr(gemini_service, "research_menu", _researched)
+    state: SilpoAgentState = {
+        "audio_bytes": None,
+        "user_text": "Збери друзів на гриль: курка та печериці",
+        "intent": IntentEnum.PARTY,
+        "budget": 5000.0,
+        "people_count": 5,
+        "dietary_restrictions": [],
+        "raw_item_requests": ["курка", "печериці"],
+        "calculated_items": [],
+        "mcp_products": [],
+        "total_price": 0.0,
+        "attempts": 0,
+        "max_attempts": 3,
+        "is_budget_exceeded": False,
+        "cart_url": None,
+        "summary_message": "",
+        "audio_url": None,
+        "messages": [],
+    }
+    result = await plan_domain_logic_node(state)
+    assert result["calculated_items"] == menu

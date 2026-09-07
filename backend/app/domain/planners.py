@@ -65,19 +65,103 @@ class DomainPlanner(Protocol):
 
 
 class PartyDomainPlanner:
-    def plan(self, state: SilpoAgentState) -> list[dict[str, Any]]:
-        people_count = state.get("people_count") or 1
-        dietary = state.get("dietary_restrictions") or []
-        is_retry = state.get("is_budget_exceeded", False)
-        attempts = state.get("attempts", 0)
+    _REQUEST_CATEGORIES: ClassVar[tuple[tuple[str, tuple[str, ...]], ...]] = (
+        (
+            "meat",
+            (
+                "курк",
+                "куря",
+                "курча",
+                "chicken",
+                "свин",
+                "ошийок",
+                "ошийник",
+                "м'яс",
+                "мяс",
+                "бекон",
+                "сало",
+                "ялович",
+                "телятин",
+                "баранин",
+                "ковбас",
+                "сосиск",
+                "стейк",
+                "шашлик",
+            ),
+        ),
+        (
+            "vegetables",
+            (
+                "печериц",
+                "гриб",
+                "шампіньйон",
+                "глив",
+                "овоч",
+                "помідор",
+                "огір",
+                "перець",
+                "кукурудз",
+                "картопл",
+                "цибул",
+                "моркв",
+                "кабачок",
+                "баклажан",
+            ),
+        ),
+        (
+            "drinks",
+            (
+                "пиво",
+                "beer",
+                "вода",
+                "сік",
+                "лимонад",
+                "квас",
+                "напій",
+                "напо",
+                "компот",
+                "морс",
+                "вино",
+                "сидр",
+            ),
+        ),
+        (
+            "accessories",
+            (
+                "вугілл",
+                "посуд",
+                "стакан",
+                "тарілк",
+                "шампур",
+                "розпалювач",
+                "мангал",
+            ),
+        ),
+    )
 
-        is_vegetarian = "vegetarian" in dietary or "vegan" in dietary
-        veg_count = 1 if is_vegetarian else 0
+    _PER_PERSON_RATE: ClassVar[dict[str, float]] = {
+        "meat": 0.4,
+        "vegetables": 0.3,
+        "drinks": 0.25,
+    }
+
+    _COVERAGE_DEFAULTS: ClassVar[dict[str, str]] = {
+        "meat": "Курка для гриля",
+        "vegetables": "Овочі для гриля Премія",
+        "drinks": "Вода мінеральна",
+    }
+
+    @classmethod
+    def _classify_request(cls, request: str) -> str:
+        lowered = request.lower()
+        for category, markers in cls._REQUEST_CATEGORIES:
+            if any(marker in lowered for marker in markers):
+                return category
+        return "general"
+
+    def _classic_seed(self, people_count: int, veg_count: int, is_retry: bool, attempts: int) -> list[dict[str, Any]]:
         non_veg_count = max(0, people_count - veg_count)
-
         calculated_items: list[dict[str, Any]] = []
-
-        # Meat portion calculation
         if non_veg_count > 0:
             meat_qty = max(1, math.ceil(non_veg_count * 0.4))
             if is_retry and attempts > 0:
@@ -90,8 +174,6 @@ class PartyDomainPlanner:
                     "prefer_private_label": is_retry,
                 }
             )
-
-        # Vegetables portion calculation (additional if vegetarians present)
         veg_qty = max(1, math.ceil((people_count + veg_count) * 0.3))
         if is_retry and attempts > 0:
             veg_qty = max(1, veg_qty - attempts)
@@ -103,8 +185,6 @@ class PartyDomainPlanner:
                 "prefer_private_label": True,
             }
         )
-
-        # Mineral water & beverages
         drinks_qty = max(1, math.ceil(people_count * 0.25))
         if is_retry and attempts > 0:
             drinks_qty = max(1, drinks_qty - attempts)
@@ -116,8 +196,6 @@ class PartyDomainPlanner:
                 "prefer_private_label": is_retry,
             }
         )
-
-        # Coal accessories
         if not is_retry or attempts == 0:
             calculated_items.append(
                 {
@@ -127,7 +205,59 @@ class PartyDomainPlanner:
                     "prefer_private_label": is_retry,
                 }
             )
+        return calculated_items
 
+    def plan(self, state: SilpoAgentState) -> list[dict[str, Any]]:
+        people_count = state.get("people_count") or 1
+        dietary = state.get("dietary_restrictions") or []
+        is_retry = state.get("is_budget_exceeded", False)
+        attempts = state.get("attempts", 0)
+        raw_requests = [request for request in (state.get("raw_item_requests") or []) if request.strip()]
+
+        is_vegetarian = "vegetarian" in dietary or "vegan" in dietary
+        veg_count = 1 if is_vegetarian else 0
+
+        if not raw_requests:
+            return self._classic_seed(people_count, veg_count, is_retry, attempts)
+
+        calculated_items: list[dict[str, Any]] = []
+        for request in raw_requests:
+            category = self._classify_request(request)
+            rate = self._PER_PERSON_RATE.get(category)
+            if rate is None:
+                quantity = 1
+            else:
+                base = people_count + veg_count if category == "vegetables" else people_count
+                quantity = max(1, math.ceil(base * rate))
+                if is_retry and attempts > 0:
+                    quantity = max(1, quantity - attempts)
+            calculated_items.append(
+                {
+                    "query": request,
+                    "category": category,
+                    "quantity": quantity,
+                    "prefer_private_label": True if category == "vegetables" else is_retry,
+                }
+            )
+
+        covered = {item["category"] for item in calculated_items}
+        non_veg_count = max(0, people_count - veg_count)
+        for category in self.min_coverage():
+            if category in covered:
+                continue
+            if category == "meat" and non_veg_count == 0:
+                continue
+            quantity = max(1, math.ceil(people_count * self._PER_PERSON_RATE[category]))
+            if is_retry and attempts > 0:
+                quantity = max(1, quantity - attempts)
+            calculated_items.append(
+                {
+                    "query": self._COVERAGE_DEFAULTS[category],
+                    "category": category,
+                    "quantity": quantity,
+                    "prefer_private_label": True if category == "vegetables" else is_retry,
+                }
+            )
         return calculated_items
 
     def format_summary(self, total_price: float, state: SilpoAgentState) -> str:

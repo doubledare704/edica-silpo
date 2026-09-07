@@ -63,7 +63,7 @@ All graph nodes are async. `check_constraints` increments `attempts` exactly onc
 (`get_cart` → `get_cart_by_id` → branch/delivery/slot, with slot revalidation via
 `get_time_slots`), falling back to the address flow only when no active cart exists.
 On retry without over-budget it keeps verified picks and re-attempts only
-`unfulfilled_requests` instead of re-searching everything. Requires `silpo-py-mcp>=0.3.0`
+`unfulfilled_requests` instead of re-searching everything. Requires `silpo-py-mcp>=0.3.1`
 (context-first API): text search goes through `find_products_batch`, promo fillers through
 `get_products(must_have_promotion=True, to_price=...)`, substitutes through slug-based
 `get_similar_products` / `get_product_details` and `get_replacements`, slots through typed
@@ -73,7 +73,9 @@ Per seed item the picker calls allowed Silpo tools with a hard price ceiling,
 enrichment for gourmet), scores candidates with the planner policy, and fills leftover
 budget with promo products + `filler_queries` under `hard_fill`. An LLM advisor hook
 (`GeminiPickerAdvisor` via `choose_picker_candidate`, greedy fallback on any failure)
-chooses among shortlisted candidates. `MAX_PICKER_STEPS` (default 8) bounds tool calls;
+chooses among shortlisted candidates: it receives the original search query and may
+return `{"reject": true}` (`ADVISOR_VETO`), which marks the request `unfulfilled` with
+an `advisor_veto` trace entry instead of accepting a mismatch. `MAX_PICKER_STEPS` (default 14) bounds tool calls;
 `MIN_ITEM_PRICE_FLOOR` (default 15.0) stops filler top-ups. `check_constraints` recomputes
 totals and coverage; `route_constraints` loops to `picker` while exceeded or unmet
 (progress-guarded by `picker_accepted`), else proceeds to `create_cart`. `mcp_fetch`
@@ -87,11 +89,25 @@ Each `DomainPlanner` exposes a picker policy for the shared iterative picker:
 `filler_queries` (cheap queries to fill leftover budget), and `score(candidate, remaining)`
 (negative means reject under a hard ceiling).
 
+`PartyDomainPlanner` honors `raw_item_requests`: each request is classified into
+meat/vegetables/drinks/accessories/general and scaled per person (0.4/0.3/0.25 rates
+for the fresh categories, flat 1 otherwise), shrinking on budget-exceeded retries.
+Missing `min_coverage` categories are backfilled with neutral defaults (chicken, grill
+vegetables, mineral water — never pork); an empty request list keeps the classic seed.
+The offline `extract_intent_fallback` extracts concrete item names (chicken, mushrooms,
+non-alcoholic beer, disposable tableware with qualifiers) instead of generic buckets.
+
 ## Integrations
 
 ### Gemini
 
 STT and intent parsing use `google-genai` through `client.aio`. Intent parsing requests structured JSON and validates `ParsedIntentSchema`. Missing credentials, API failures, empty responses, and invalid output use deterministic local fallback logic.
+
+Grounded menu research (`research_menu`, used by `plan_domain_logic`) pairs the
+`google_search` tool with a bare-JSON prompt instruction: the API rejects
+`response_mime_type="application/json"` together with the search tool, so the list
+is recovered from prose via extraction and validated by the seed sanitizer
+(`dish`/`note` preserved). Any failure keeps the deterministic planner seed.
 
 ### MCP and cart
 
