@@ -104,4 +104,18 @@ describe('CartCard', () => {
 		render(CartCard, { ...baseProps, items: [] });
 		expect(screen.queryByTestId('cart-items-preview')).not.toBeInTheDocument();
 	});
+
+	it('renders the weekly menu when a meal plan is provided', () => {
+		render(CartCard, {
+			...baseProps,
+			mealPlan: { days: [{ day: 'День 1', dishes: ['Хек з гречкою'] }] },
+		});
+		expect(screen.getByTestId('weekly-menu')).toBeInTheDocument();
+		expect(screen.getByText('Хек з гречкою')).toBeInTheDocument();
+	});
+
+	it('hides the weekly menu when no meal plan was provided', () => {
+		render(CartCard, baseProps);
+		expect(screen.queryByTestId('weekly-menu')).not.toBeInTheDocument();
+	});
 });

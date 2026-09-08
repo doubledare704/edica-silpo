@@ -71,9 +71,19 @@ npm run test:run --prefix frontend
 - [x] Picker advisor prompt: pass original query + `{"reject": true}` veto; intent prompt few-shots for grill/non-alcoholic extraction.
 - [x] Grounded-research 400 fix: drop `response_mime_type` with the search tool (API rejects the combo), bare-JSON prompt + list extraction (live smoke caught it always falling back).
 - [x] Weekly plan_meals node for budget weekly-menu queries: dedicated `plan_meals` node (BUDGET + budget + weekly marker) builds 7-day `meal_plan` via `plan_weekly_meals` LLM with deterministic planner fallback; `plan_domain_logic` prefers `meal_plan.shopping_seed`; non-weekly passthrough preserves party/office/gourmet flow.
+- [x] Surface weekly meal_plan in SSE node_complete + CartCard: `_serialize_meal_plan` in `node_complete`, weekly `format_summary` wording, `🍽️ Тижневе меню` timeline label, `MealPlan` types + `normalizeMealPlan`, CartCard 7-day section.
+- [x] Weekly seed coverage backfill: `plan_meals` merges LLM seed with missing `min_coverage` staples (dairy/bakery) from `BudgetDomainPlanner`, so a thin 2-item LLM seed can no longer fail coverage and skip top-up/promo fill.
+- [x] Nearby-branch retry for assortment misses: picker re-searches `not_found`/`rejected_irrelevant` seed items in up to `MAX_NEARBY_BRANCHES` (2) branches within `MAX_NEARBY_DISTANCE_KM` (10 км) with per-branch slot validation; branch-independent rejections (constraints/judge/budget) are never retried; hits traced as `accepted_nearby` with branch/distance.
+- [x] Per-query cart replace: `create_cart` clears stale items via `clear_cart` before upsert when reusing a non-empty server cart, so queries no longer accumulate; clear failures warn-and-continue without killing the write.
+- [x] Honest empty cart: all-miss queries ensure a real (cleared) cart and return its URL instead of raising into a mock fallback link; `find_nearby_contexts` logs a skip breakdown (primary/far/no-slot) when resolving zero branches.
+- [x] Picker observability + quota: `LOG_PICKER_REJECTIONS` flag elevates query→title rejections to INFO (gourmet live-gap diagnosis); nearby skip reasons always logged; deterministic relevance runs before the LLM judge so quota is not spent on clear mismatches.
+- [x] Weekly seed preservation: picker skips generic LLM query formulation when `meal_plan.shopping_seed` is present (the party-oriented 2–6-query formulator was compressing the 12-item weekly seed); saves one LLM call per run.
+- [x] Query-in-progress hero: `QueryInProgress` shows the submitted query in an animated gradient border (global `query-flow` keyframes, reduced-motion safe) instead of dead disabled inputs while streaming; voice queries fall back to a voice label.
 - [ ] Run gated live Gemini/MCP smoke tests with real credentials.
   Status: parse/formulate/judge verified live OK (`test_gemini_live.py`, throttled, quota-aware skips);
+  `plan_weekly_meals` has offline unit coverage (mock-mode, parse+dish, fish→meat normalization, failure→None)
+  plus a gated `test_live_plan_weekly_meals_smoke` (collects OK, not yet run live);
   grounded `research_menu` still unverified live — key's token quota starved (light calls pass, grounded 429s);
-  re-run `test_gemini_live.py::test_live_research_menu_smoke` after quota reset. MCP live opt-in only
-  (`SILPO_LIVE_SMOKE=1`, needs completed OAuth login), skipped by default.
+  re-run `test_gemini_live.py::test_live_research_menu_smoke` and `::test_live_plan_weekly_meals_smoke`
+  after quota reset. MCP live opt-in only (`SILPO_LIVE_SMOKE=1`, needs completed OAuth login), skipped by default.
 - Keep `.docs/LANGRAPH_DISCOVERY.md` as historical reference only; it is not the active architecture contract.

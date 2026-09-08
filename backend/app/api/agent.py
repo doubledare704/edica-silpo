@@ -50,6 +50,37 @@ def _serialize_cart_items(products: object) -> list[dict[str, object]]:
     return items
 
 
+def _serialize_meal_plan(meal_plan: object) -> dict[str, object] | None:
+    if not isinstance(meal_plan, dict):
+        return None
+    days = meal_plan.get("days")
+    if not isinstance(days, list) or not days:
+        return None
+    clean_days: list[dict[str, object]] = []
+    for entry in days:
+        if not isinstance(entry, dict):
+            continue
+        dishes = entry.get("dishes")
+        clean_days.append(
+            {
+                "day": str(entry.get("day", "")),
+                "dishes": [str(dish) for dish in dishes] if isinstance(dishes, list) else [],
+            }
+        )
+    if not clean_days:
+        return None
+    try:
+        budget = float(meal_plan.get("budget", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        budget = 0.0
+    people = meal_plan.get("people_count")
+    return {
+        "days": clean_days,
+        "budget": budget,
+        "people_count": int(people) if isinstance(people, int) else None,
+    }
+
+
 async def _sse_generator(
     user_text: str | None,
     thread_id: str,
@@ -146,6 +177,7 @@ async def _sse_generator(
         "cart_validations": accumulated_state.get("cart_validations", []),
         "summary": accumulated_state.get("summary_message"),
         "audio_url": accumulated_state.get("audio_url"),
+        "meal_plan": _serialize_meal_plan(accumulated_state.get("meal_plan")),
         "items": _serialize_cart_items(accumulated_state.get("mcp_products", [])),
     }
     yield ServerSentEvent(event=SSEEvent.NODE_COMPLETE, data=final_payload)

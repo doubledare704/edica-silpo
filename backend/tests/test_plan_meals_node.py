@@ -76,6 +76,29 @@ async def test_meal_plan_fallback_when_llm_fails(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_meal_plan_backfills_missing_coverage_from_llm_seed(monkeypatch) -> None:
+    from app.nodes import plan_meals as plan_meals_module
+    from app.nodes.plan_meals import plan_meals_node
+
+    async def _thin_seed(_goal: str):
+        return [
+            {"query": "Хек свіжоморожений", "category": "meat", "quantity": 2},
+            {"query": "Крупа гречана", "category": "grocery", "quantity": 1},
+        ]
+
+    monkeypatch.setattr(plan_meals_module.gemini_service, "plan_weekly_meals", _thin_seed)
+    result = await plan_meals_node(_make_state())
+    seed = result.get("calculated_items", [])
+    categories = {str(item.get("category")) for item in seed}
+    assert {"grocery", "dairy", "bakery", "meat"} <= categories
+    queries = [str(item["query"]).lower() for item in seed]
+    assert any("хек" in q for q in queries)
+    assert any("греч" in q or "крупа" in q for q in queries)
+    assert sum("хек" in q for q in queries) == 1
+    assert all(int(item["quantity"]) <= 6 for item in seed)
+
+
+@pytest.mark.asyncio
 async def test_plan_domain_logic_prefers_meal_plan_seed(monkeypatch) -> None:
     from app.nodes.plan_domain_logic import plan_domain_logic_node
     from app.services import gemini_service

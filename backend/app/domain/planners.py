@@ -416,6 +416,11 @@ class BudgetDomainPlanner:
 
     def format_summary(self, total_price: float, state: SilpoAgentState) -> str:
         products_count = len(state.get("mcp_products", []))
+        if state.get("meal_plan"):
+            return (
+                f"Я підібрала економний кошик на тиждень (7 днів) із {products_count} товарів "
+                f"на суму {int(total_price)} гривень."
+            )
         return f"Я підібрала економний кошик із {products_count} товарів на суму {int(total_price)} гривень."
 
     def budget_mode(self) -> BudgetMode:

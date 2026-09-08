@@ -133,6 +133,19 @@ async def test_live_judge_picker_candidate_smoke(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_live_plan_weekly_meals_smoke(monkeypatch) -> None:
+    await _require_quota(monkeypatch)
+    await _throttle()
+    goal = "intent=budget budget=2000 people=2 request=продукти на тиждень з рибою, овочами і крупою items=риба,овочі,крупа"
+    seed = await gemini_service.plan_weekly_meals(goal)
+    await _assert_or_quota_skip(seed is not None and 2 <= len(seed) <= 10)
+    assert seed is not None
+    assert all(item.get("query") and item.get("category") for item in seed)
+    joined = " ".join(str(item.get("query", "")) for item in seed).lower()
+    assert "хек" in joined or "риб" in joined
+
+
+@pytest.mark.asyncio
 async def test_live_research_menu_smoke(monkeypatch) -> None:
     await _require_quota(monkeypatch)
     await _throttle()

@@ -1,11 +1,12 @@
 <script lang="ts">
 	import VoiceInput from '$lib/components/VoiceInput.svelte';
+	import QueryInProgress from '$lib/components/QueryInProgress.svelte';
 	import AgentTimeline from '$lib/components/AgentTimeline.svelte';
 	import CartCard from '$lib/components/CartCard.svelte';
 	import SuccessBanner from '$lib/components/SuccessBanner.svelte';
 	import { selectedStore } from '$lib/selectedStore.svelte';
 	import { setCart, clearCart } from '$lib/cartStore.svelte';
-	import type { CartItem } from '$lib/cart';
+	import type { CartItem, MealPlan } from '$lib/cart';
 
 	interface CartPayload {
 		cartUrl: string | null;
@@ -14,6 +15,7 @@
 		totalPrice: number;
 		isBudgetExceeded: boolean;
 		items: CartItem[];
+		mealPlan: MealPlan | null;
 	}
 
 	interface StreamRequest {
@@ -77,6 +79,7 @@
 			totalPrice={cartPayload.totalPrice}
 			isBudgetExceeded={cartPayload.isBudgetExceeded}
 			items={cartPayload.items}
+			mealPlan={cartPayload.mealPlan}
 		/>
 	{:else}
 		<div class="grid grid-cols-1 md:grid-cols-12 gap-4">
@@ -119,7 +122,11 @@
 				{/if}
 
 				<div class="w-full max-w-xl relative z-10 {currentRequest ? '' : 'mb-12'}">
-					<VoiceInput onsubmit={handleSubmit} disabled={isThinking} />
+					{#if currentRequest}
+						<QueryInProgress query={currentRequest.userText} />
+					{:else}
+						<VoiceInput onsubmit={handleSubmit} disabled={isThinking} />
+					{/if}
 				</div>
 
 				{#if !currentRequest}

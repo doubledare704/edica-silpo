@@ -598,6 +598,32 @@ async def test_picker_uses_formulated_queries_for_grill_request() -> None:
 
 
 @pytest.mark.asyncio
+async def test_picker_skips_formulation_for_meal_plan_seed() -> None:
+    decoy = [
+        {"query": "Ошийник свинячий", "category": "meat", "quantity": 2, "prefer_private_label": False},
+    ]
+    formulator = MappingFormulator(decoy)
+    service = PickerService(product_service=FakeProductService(_grill_catalog()), query_formulator=formulator)
+    meal_seed = [
+        {"query": "Курка для гриля", "category": "meat", "quantity": 2, "prefer_private_label": False},
+        {"query": "Печериці", "category": "vegetables", "quantity": 1, "prefer_private_label": False},
+    ]
+    result = await service.run(
+        _make_state(
+            IntentEnum.PARTY,
+            budget=5000.0,
+            people_count=5,
+            calculated_items=meal_seed,
+            meal_plan={"days": [{"day": "День 1", "dishes": ["Курка-гриль"]}], "shopping_seed": meal_seed},
+        )
+    )
+    assert formulator.goals == []
+    titles = [str(p.get("title", "")) for p in result["mcp_products"]]
+    assert any("Куряче" in title for title in titles)
+    assert not any("Ошийник" in title for title in titles)
+
+
+@pytest.mark.asyncio
 async def test_picker_judge_rejects_pork_and_researches_chicken() -> None:
     catalog = dict(_party_catalog())
     catalog["курка для гриля"] = {

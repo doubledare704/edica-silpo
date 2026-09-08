@@ -12,7 +12,7 @@
 	 */
 
 	import { getBackendUrl } from '$lib/config';
-	import { normalizeCartItems, type CartItem } from '$lib/cart';
+	import { normalizeCartItems, normalizeMealPlan, type CartItem, type MealPlan } from '$lib/cart';
 	import { tick } from 'svelte';
 
 	interface StreamRequest {
@@ -35,6 +35,7 @@
 		totalPrice: number;
 		isBudgetExceeded: boolean;
 		items: CartItem[];
+		mealPlan: MealPlan | null;
 	}
 
 	interface Props {
@@ -59,6 +60,7 @@
 	const NODE_LABELS: Record<string, string> = {
 		stt: '🎤 Розпізнавання мовлення',
 		parse_intent: '🧠 Визначення наміру',
+		plan_meals: '🍽️ Тижневе меню',
 		plan_domain_logic: '📋 Планування кошика',
 		mcp_fetch: '🔍 Пошук товарів у Silpo',
 		check_constraints: '💰 Перевірка бюджету',
@@ -148,14 +150,15 @@
 
 			case 'node_complete':
 				addEvent('node_complete', '🏁 Готово!');
-				oncomplete({
-					cartUrl: (data['cart_url'] as string | null) ?? null,
-					summary: String(data['summary'] ?? ''),
-					audioUrl: resolveAudioUrl((data['audio_url'] as string | null) ?? null),
-					totalPrice: Number(data['total_price'] ?? 0),
-					isBudgetExceeded: Boolean(data['is_budget_exceeded']),
-					items: normalizeCartItems(data['items']),
-				});
+			oncomplete({
+				cartUrl: (data['cart_url'] as string | null) ?? null,
+				summary: String(data['summary'] ?? ''),
+				audioUrl: resolveAudioUrl((data['audio_url'] as string | null) ?? null),
+				totalPrice: Number(data['total_price'] ?? 0),
+				isBudgetExceeded: Boolean(data['is_budget_exceeded']),
+				items: normalizeCartItems(data['items']),
+				mealPlan: normalizeMealPlan(data['meal_plan']),
+			});
 				break;
 		}
 	}

@@ -43,8 +43,16 @@ async def plan_meals_node(state: SilpoAgentState) -> dict[str, Any]:
         logger.debug("Weekly meal LLM failed, using planner fallback: %s", exc)
         seed = None
     llm_used = bool(seed)
+    planner = BudgetDomainPlanner()
     if not seed:
-        seed = BudgetDomainPlanner().plan(state)
+        seed = planner.plan(state)
+    else:
+        covered = {str(item.get("category", "")) for item in seed}
+        for staple in planner.plan(state):
+            category = str(staple.get("category", ""))
+            if category in planner.min_coverage() and category not in covered:
+                seed.append(staple)
+                covered.add(category)
     for item in seed:
         try:
             item["quantity"] = max(1, min(6, int(item.get("quantity", 1) or 1)))

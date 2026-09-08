@@ -12,7 +12,7 @@
 	 */
 
 	import CartItemsPreview from '$lib/components/CartItemsPreview.svelte';
-	import type { CartItem } from '$lib/cart';
+	import type { CartItem, MealPlan } from '$lib/cart';
 
 	interface Props {
 		cartUrl: string | null;
@@ -21,9 +21,18 @@
 		totalPrice: number;
 		isBudgetExceeded: boolean;
 		items?: CartItem[];
+		mealPlan?: MealPlan | null;
 	}
 
-	let { cartUrl, summary, audioUrl, totalPrice, isBudgetExceeded, items = [] }: Props = $props();
+	let {
+		cartUrl,
+		summary,
+		audioUrl,
+		totalPrice,
+		isBudgetExceeded,
+		items = [],
+		mealPlan = null,
+	}: Props = $props();
 	let audioElement = $state<HTMLAudioElement | null>(null);
 	let autoplayBlocked = $state(false);
 
@@ -104,6 +113,22 @@
 		</div>
 
 		<p class="text-on-surface text-base leading-relaxed mb-6">{summary}</p>
+
+		{#if mealPlan?.days?.length}
+			<details data-testid="weekly-menu" class="mb-6 rounded-xl border border-app-border p-4">
+				<summary class="cursor-pointer text-sm font-semibold text-on-surface">
+					🍽️ Меню на тиждень ({mealPlan.days.length} днів)
+				</summary>
+				<ul class="mt-3 flex flex-col gap-2">
+					{#each mealPlan.days as day}
+						<li class="text-sm text-on-surface">
+							<span class="font-semibold">{day.day}:</span>
+							{day.dishes.join(', ')}
+						</li>
+					{/each}
+				</ul>
+			</details>
+		{/if}
 
 		<CartItemsPreview {items} />
 

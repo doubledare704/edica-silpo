@@ -258,6 +258,20 @@ async def research_menu(goal: str) -> list[dict[str, Any]] | None:
         return None
 
 
+_WEEKLY_MEAL_KNOWN_CATEGORIES = frozenset({"meat", "vegetables", "grocery", "dairy", "bakery", "general"})
+
+# The prompt asks for fish twice a week but offers no fish category, so remap
+# strays to picker-compatible values (fish counts as meat protein, as in planners).
+_WEEKLY_MEAL_CATEGORY_ALIASES = {"fish": "meat", "seafood": "meat"}
+
+
+def _normalize_weekly_category(category: object) -> str:
+    normalized = str(category or "").strip().lower()
+    if normalized in _WEEKLY_MEAL_KNOWN_CATEGORIES:
+        return normalized
+    return _WEEKLY_MEAL_CATEGORY_ALIASES.get(normalized, "general")
+
+
 async def plan_weekly_meals(goal: str) -> list[dict[str, Any]] | None:
     """Builds a budget-aware 7-day shopping seed; None means use deterministic fallback."""
     if settings.GEMINI_MOCK_MODE or not settings.GEMINI_API_KEY:
@@ -275,7 +289,12 @@ async def plan_weekly_meals(goal: str) -> list[dict[str, Any]] | None:
         text = response.text
         if not text or not text.strip():
             return None
-        return _sanitize_seed(json.loads(_extract_json_list(text)), ("dish",))
+        seed = _sanitize_seed(json.loads(_extract_json_list(text)), ("dish",))
+        if seed is None:
+            return None
+        for item in seed:
+            item["category"] = _normalize_weekly_category(item.get("category"))
+        return seed
     except Exception as exc:  # noqa: BLE001 - failure keeps deterministic fallback
         logger.debug("Gemini weekly meal plan failed, using fallback: %s", exc)
         return None

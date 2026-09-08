@@ -72,11 +72,20 @@ On retry without over-budget it keeps verified picks and re-attempts only
 Per seed item the picker calls allowed Silpo tools with a hard price ceiling,
 `get_replacements`/`get_similar_products` substitutes on miss, `get_product_details`
 enrichment for gourmet), scores candidates with the planner policy, and fills leftover
-budget with promo products + `filler_queries` under `hard_fill`. An LLM advisor hook
+budget with promo products + `filler_queries` under `hard_fill`. Assortment misses
+(`not_found`/`rejected_irrelevant`) are additionally retried in up to
+`MAX_NEARBY_BRANCHES` nearby branches (distance-capped, slot-validated,
+step-budgeted, traced as `accepted_nearby`); branch-independent rejections are
+never retried elsewhere. An LLM advisor hook
 (`GeminiPickerAdvisor` via `choose_picker_candidate`, greedy fallback on any failure)
 chooses among shortlisted candidates: it receives the original search query and may
 return `{"reject": true}` (`ADVISOR_VETO`), which marks the request `unfulfilled` with
-an `advisor_veto` trace entry instead of accepting a mismatch. `MAX_PICKER_STEPS` (default 14) bounds tool calls;
+an `advisor_veto` trace entry instead of accepting a mismatch. Gate order per item is
+constraints → deterministic relevance → LLM judge → advisor → score, so the judge
+quota is spent only on relevance survivors; `LOG_PICKER_REJECTIONS=true` elevates
+query→title rejections to INFO for live assortment diagnosis. Goal-derived query
+formulation is skipped when `meal_plan.shopping_seed` is present, preserving the
+weekly seed diversity (and saving one LLM call). `MAX_PICKER_STEPS` (default 14) bounds tool calls;
 `MIN_ITEM_PRICE_FLOOR` (default 15.0) stops filler top-ups. `check_constraints` recomputes
 totals and coverage; `route_constraints` loops to `picker` while exceeded or unmet
 (progress-guarded by `picker_accepted`), else proceeds to `create_cart`. `mcp_fetch`
@@ -114,8 +123,11 @@ is recovered from prose via extraction and validated by the seed sanitizer
 
 Official Silpo cart flow, one-to-one: `get_cart` → `get_cart_by_id` (branch/delivery/slot
 context, slot revalidated via `get_time_slots`) → `find_products_batch` → optional
-`update_shopping_cart` when delivery settings changed → `add_or_update_cart_products`
-(upsert, no clearing) → `get_cart_by_id` verify (`validations[]`, loyalty, checkout links).
+`update_shopping_cart` when delivery settings changed → `clear_cart` when reusing a
+non-empty cart (each query replaces, never accumulates; clear failures warn-and-continue)
+→ `add_or_update_cart_products` (upsert, skipped for empty writes) → `get_cart_by_id`
+verify (`validations[]`, loyalty, checkout links). Empty writes still ensure a real cart
+and return its URL instead of a mock fallback link.
 `cart_url` is the checkout web link when available. Bonus flow is ask-don't-apply:
 `loyalty_hint` surfaces `bonusAvailable`; applying stays a future explicit user action.
 
@@ -138,7 +150,7 @@ Audio failures never prevent `summary_message` from returning. Speech text is Uk
 - `session_info`: thread ID
 - `thinking_step`: actual graph node and status
 - `tool_start` / `tool_end`: MCP activity (legacy `mcp_fetch` plus one pair per `picker_trace` entry)
-- `node_complete`: final intent, totals, cart URL, summary, and audio URL (plus `remaining_budget`, `is_requirements_met`, `checkout_url`, `loyalty_hint`, `cart_validations`)
+- `node_complete`: final intent, totals, cart URL, summary, and audio URL (plus `remaining_budget`, `is_requirements_met`, `checkout_url`, `loyalty_hint`, `cart_validations`, `meal_plan` with 7-day `days` for weekly budget queries, `None` otherwise)
 
 The endpoint accepts text or base64 audio/WebM input and preserves the existing frontend event names.
 

@@ -27,14 +27,6 @@
 			<div class="hidden md:block md:w-105">
 				<StoreSelector />
 			</div>
-			<div class="text-[14px] leading-5 font-semibold text-on-surface-variant flex items-center gap-2">
-				<span
-					class="bg-surface-container p-2 rounded-full inline-flex"
-					aria-hidden="true"
-				>
-					<span class="material-symbols-outlined text-primary">mic</span>
-				</span>
-			</div>
 		</div>
 		<div class="md:hidden px-4 pb-3">
 			<StoreSelector />

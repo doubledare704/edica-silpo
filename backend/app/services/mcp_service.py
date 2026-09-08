@@ -612,6 +612,94 @@ class MCPProductService:
                 "stores": stores,
             }
 
+    async def find_nearby_contexts(
+        self,
+        delivery_address: str | None,
+        primary: dict[str, str] | None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Returns purchasable contexts of nearby branches, closest first.
+
+        The picker re-searches assortment misses (`not_found` / `rejected_irrelevant`)
+        in these branches when the primary branch cannot cover the weekly goal.
+        Mock mode stays single-branch; without a delivery address the user cannot
+        be located, so no candidates are returned.
+        """
+        if settings.MCP_MOCK_MODE:
+            logger.debug("Nearby branch lookup skipped: mock mode stays single-branch")
+            return []
+        if not delivery_address or primary is None:
+            logger.info("nearby branches resolved=0 reason=no_delivery_address")
+            return []
+        delivery_type = primary.get("delivery_type", "")
+        if not delivery_type:
+            logger.info("nearby branches resolved=0 reason=no_delivery_type")
+            return []
+        cap = limit if limit is not None else settings.MAX_NEARBY_BRANCHES
+        try:
+            ranked = await self.find_nearest_branches(delivery_address, limit=cap + 5)
+        except (ValueError, SilpoError, RuntimeError, OSError) as exc:
+            logger.debug("Nearby branch ranking failed: %s", exc)
+            return []
+        primary_branch = primary.get("branch_id")
+        contexts: list[dict[str, Any]] = []
+        skipped_primary = 0
+        skipped_far = 0
+        skipped_no_slot = 0
+        client = SilpoClient.for_real_server()
+        try:
+            async with client:
+                for store in ranked.get("stores", []):
+                    if len(contexts) >= max(cap, 0):
+                        break
+                    branch_id = str(store.get("branch_id", ""))
+                    if not branch_id or branch_id == primary_branch:
+                        skipped_primary += 1
+                        continue
+                    try:
+                        distance = float(store.get("distance_km", math.inf))
+                    except (TypeError, ValueError):
+                        distance = math.inf
+                    if distance > settings.MAX_NEARBY_DISTANCE_KM:
+                        skipped_far += 1
+                        continue
+                    try:
+                        raw_slots = await client.get_time_slots(branch_id, delivery_types=[delivery_type])
+                    except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+                        logger.debug("No slots for nearby branch %s: %s", branch_id, exc)
+                        skipped_no_slot += 1
+                        continue
+                    slot = next(
+                        (parsed for parsed in (self._normalize_slot(e) for e in raw_slots or []) if parsed is not None),
+                        None,
+                    )
+                    if slot is None:
+                        skipped_no_slot += 1
+                        continue
+                    contexts.append(
+                        {
+                            "branch_id": branch_id,
+                            "delivery_type": delivery_type,
+                            "timeslot_start": slot["start"],
+                            "timeslot_end": slot["end"],
+                            "distance_km": store.get("distance_km"),
+                            "display_address": store.get("display_address"),
+                        }
+                    )
+        except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+            logger.debug("Nearby branch context resolution failed: %s", exc)
+            return []
+        logger.info(
+            "nearby branches resolved=%d primary=%s delivery=%s skipped_primary=%d skipped_far=%d skipped_no_slot=%d",
+            len(contexts),
+            primary_branch,
+            delivery_type,
+            skipped_primary,
+            skipped_far,
+            skipped_no_slot,
+        )
+        return contexts
+
     async def list_saved_addresses(self) -> list[dict[str, Any]]:
         """Returns the user's saved Silpo delivery addresses (empty when unavailable)."""
         client = SilpoClient.for_mock() if settings.MCP_MOCK_MODE else SilpoClient.for_real_server()
@@ -800,14 +888,14 @@ class MCPProductService:
     async def create_cart(
         self, products: list[dict[str, Any]], fulfillment: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        """Official fill-cart flow: ensure cart → apply delivery → upsert → verify.
+        """Official fill-cart flow: ensure cart → clear stale → apply delivery → upsert → verify.
 
+        An empty product list still ensures a real cart (clearing stale items under
+        replace semantics) and returns its URL instead of raising, so all-miss
+        queries surface an honest empty cart rather than a mock fallback link.
         Returns cart_url, checkout_url, verified_total, validations, loyalty_hint
         and the fulfillment used.
         """
-        if not products:
-            raise ValueError("Cannot create a cart without products")
-
         invalid = [
             f"{product.get('title', product.get('productId') or product.get('id'))}: {reason}"
             for product in products
@@ -845,8 +933,14 @@ class MCPProductService:
                 if not cart_id:
                     raise ValueError("Silpo cart creation response is missing an id")
                 cart_id = str(cart_id)
-            await client.add_or_update_cart_products(str(cart_id), products=items)
-            if fulfillment is not None:
+            if detail is not None and detail.get("items"):
+                try:
+                    await client.clear_cart(str(cart_id))
+                except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+                    logger.warning("mcp cart clear failed, upserting into dirty cart: %s", exc)
+            if items:
+                await client.add_or_update_cart_products(str(cart_id), products=items)
+            if fulfillment is not None and items:
                 refreshed = await self._fetch_cart_detail(client, str(cart_id))
                 if refreshed is not None and self._delivery_differs(refreshed, fulfillment):
                     await self._apply_delivery_settings(client, str(cart_id), refreshed, fulfillment, items)

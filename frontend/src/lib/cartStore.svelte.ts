@@ -1,4 +1,4 @@
-import type { CartItem } from '$lib/cart';
+import type { CartItem, MealPlan } from '$lib/cart';
 
 export interface CartStorePayload {
 	cartUrl: string | null;
@@ -6,6 +6,7 @@ export interface CartStorePayload {
 	totalPrice: number;
 	isBudgetExceeded: boolean;
 	items: CartItem[];
+	mealPlan?: MealPlan | null;
 }
 
 export const cartStore = $state<{
@@ -14,12 +15,14 @@ export const cartStore = $state<{
 	summary: string;
 	totalPrice: number;
 	isBudgetExceeded: boolean;
+	mealPlan: MealPlan | null;
 }>({
 	items: [],
 	cartUrl: null,
 	summary: '',
 	totalPrice: 0,
 	isBudgetExceeded: false,
+	mealPlan: null,
 });
 
 export function setCart(payload: CartStorePayload): void {
@@ -28,6 +31,7 @@ export function setCart(payload: CartStorePayload): void {
 	cartStore.summary = payload.summary;
 	cartStore.totalPrice = payload.totalPrice;
 	cartStore.isBudgetExceeded = payload.isBudgetExceeded;
+	cartStore.mealPlan = payload.mealPlan ?? null;
 }
 
 export function clearCart(): void {
@@ -36,6 +40,7 @@ export function clearCart(): void {
 	cartStore.summary = '';
 	cartStore.totalPrice = 0;
 	cartStore.isBudgetExceeded = false;
+	cartStore.mealPlan = null;
 }
 
 export function cartItemsCount(): number {

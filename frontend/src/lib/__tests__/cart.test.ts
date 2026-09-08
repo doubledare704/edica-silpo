@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { itemEmoji, itemsCountLabel, normalizeCartItems } from '../cart';
+import { itemEmoji, itemsCountLabel, normalizeCartItems, normalizeMealPlan } from '../cart';
 
 describe('cart helpers', () => {
 	it('maps known product titles to emoji', () => {
@@ -30,5 +30,16 @@ describe('cart helpers', () => {
 	it('drops entries without a title and non-array payloads', () => {
 		expect(normalizeCartItems(null)).toEqual([]);
 		expect(normalizeCartItems([{ price: 10 }])).toEqual([]);
+	});
+
+	it('normalizes a weekly meal plan payload', () => {
+		expect(
+			normalizeMealPlan({ days: [{ day: 'День 1', dishes: ['Хек з гречкою'] }] }),
+		).toEqual({ days: [{ day: 'День 1', dishes: ['Хек з гречкою'] }] });
+	});
+
+	it('maps missing meal plan payloads to null', () => {
+		expect(normalizeMealPlan(null)).toBeNull();
+		expect(normalizeMealPlan({})).toBeNull();
 	});
 });

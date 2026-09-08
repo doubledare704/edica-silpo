@@ -67,3 +67,29 @@ export function itemKey(item: CartItem, index: number): string {
 	const id = item.id ?? item.title;
 	return `${id}#${index}`;
 }
+
+export interface MealDay {
+	day: string;
+	dishes: string[];
+}
+
+export interface MealPlan {
+	days: MealDay[];
+}
+
+export function normalizeMealPlan(raw: unknown): MealPlan | null {
+	if (typeof raw !== 'object' || raw === null) return null;
+	const days = (raw as Record<string, unknown>)['days'];
+	if (!Array.isArray(days) || days.length === 0) return null;
+	const cleanDays: MealDay[] = [];
+	for (const entry of days) {
+		if (typeof entry !== 'object' || entry === null) continue;
+		const record = entry as Record<string, unknown>;
+		const dishes = Array.isArray(record['dishes'])
+			? record['dishes'].map((dish) => String(dish))
+			: [];
+		cleanDays.push({ day: String(record['day'] ?? ''), dishes });
+	}
+	if (cleanDays.length === 0) return null;
+	return { days: cleanDays };
+}

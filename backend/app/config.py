@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     MAX_PICKER_STEPS: int = 14
     MIN_ITEM_PRICE_FLOOR: float = 15.0
+    MAX_NEARBY_BRANCHES: int = 2
+    MAX_NEARBY_DISTANCE_KM: float = 10.0
+    LOG_PICKER_REJECTIONS: bool = False
 
 
 settings = Settings()

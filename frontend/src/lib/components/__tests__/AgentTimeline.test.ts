@@ -158,6 +158,41 @@ describe('AgentTimeline', () => {
 		);
 	});
 
+	it('labels the plan_meals thinking step in Ukrainian', async () => {
+		const oncomplete = vi.fn();
+		mockFetchWithSse([
+			{ event: 'thinking_step', data: { node: 'plan_meals' } },
+			COMPLETE_EVENT,
+		]);
+
+		render(AgentTimeline, { request: REQUEST, oncomplete });
+
+		await waitFor(() => expect(oncomplete).toHaveBeenCalled());
+		expect(screen.getByText('🍽️ Тижневе меню')).toBeInTheDocument();
+	});
+
+	it('forwards the weekly meal plan from node_complete', async () => {
+		const oncomplete = vi.fn();
+		mockFetchWithSse([
+			{
+				event: 'node_complete',
+				data: {
+					...COMPLETE_EVENT.data,
+					meal_plan: { days: [{ day: 'День 1', dishes: ['Хек з гречкою'] }] },
+				},
+			},
+		]);
+
+		render(AgentTimeline, { request: REQUEST, oncomplete });
+
+		await waitFor(() => expect(oncomplete).toHaveBeenCalled());
+		expect(oncomplete).toHaveBeenCalledWith(
+			expect.objectContaining({
+				mealPlan: { days: [{ day: 'День 1', dishes: ['Хек з гречкою'] }] },
+			}),
+		);
+	});
+
 	it('forwards normalized cart items from node_complete', async () => {
 		const oncomplete = vi.fn();
 		mockFetchWithSse([COMPLETE_EVENT]);

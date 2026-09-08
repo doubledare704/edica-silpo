@@ -38,6 +38,7 @@ async def test_agent_stream_sse_endpoint() -> None:
             assert {item["node"] for item in thinking_data} >= {
                 "stt",
                 "parse_intent",
+                "plan_meals",
                 "plan_domain_logic",
                 "picker",
                 "check_constraints",

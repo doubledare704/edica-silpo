@@ -477,6 +477,259 @@ class PickerService:
                 break
         return remaining
 
+    @staticmethod
+    def _log_rejection(query: str, title: str, status: str, reason: str = "") -> None:
+        """Elevates a rejection to INFO for live assortment diagnosis (flag-gated)."""
+        if settings.LOG_PICKER_REJECTIONS:
+            logger.info("picker reject query=%s title=%s status=%s reason=%s", query, title, status, reason)
+
+    async def _evaluate_candidate(
+        self,
+        query: str,
+        quantity: int,
+        prefer_private_label: bool,
+        category: str | None,
+        allowlist: set[str],
+        trace: list[dict[str, Any]],
+        context: dict[str, str] | None,
+        remaining: float,
+        budget: float,
+        goal: str,
+        planner: Any,
+        hard: bool,
+        unfulfilled: list[str],
+        steps_left: int,
+        success_status: str = "accepted",
+        record_miss: bool = True,
+        trace_extra: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any] | None, float, int]:
+        """Runs one candidate through the constraint/relevance/judge/score gates.
+
+        The free deterministic relevance gate runs before the LLM judge, so quota
+        is not spent on items that already fail matching (judge rescues only apply
+        to relevance survivors, e.g. qualifier reformulations). Unless record_miss
+        is False (nearby-branch retries of an already recorded miss), the query is
+        appended to unfulfilled on every rejection path. Returns the accepted
+        product (or None), the updated remaining budget, and extra steps consumed
+        by an LLM-reformulated second attempt.
+        """
+        extra_steps = 0
+
+        def _miss(status: str, title: str, reason: str = "") -> tuple[None, float, int]:
+            self._log_rejection(query, title, status, reason)
+            if record_miss:
+                unfulfilled.append(query)
+            return None, remaining, extra_steps
+
+        def _reject_irrelevant(candidate: dict[str, Any], check_query: str) -> tuple[None, float, int] | None:
+            relevant, reason = is_relevant(check_query, str(candidate.get("title", "")))
+            if relevant:
+                return None
+            trace.append(
+                {
+                    "tool": "search_products",
+                    "query": query,
+                    "status": "rejected_irrelevant",
+                    "reason": reason,
+                    "product_id": candidate.get("id"),
+                }
+            )
+            return _miss("rejected_irrelevant", str(candidate.get("title", "")), reason)
+
+        max_price = remaining if hard and budget > 0 else None
+        product = await self._resolve_candidate(
+            query, quantity, prefer_private_label, max_price, category, allowlist, trace, context
+        )
+        if product is None:
+            return _miss("not_found", "-")
+        title = str(product.get("title", ""))
+        violated, violation = violates_hard_constraints(title, goal)
+        if violated:
+            trace.append(
+                {
+                    "tool": "search_products",
+                    "query": query,
+                    "status": "rejected_constraint",
+                    "reason": violation,
+                    "product_id": product.get("id"),
+                }
+            )
+            return _miss("rejected_constraint", title, violation)
+        if (failed := _reject_irrelevant(product, query)) is not None:
+            return failed
+        effective_query = query
+        try:
+            verdict = await self._judge.judge(query, product, goal)
+        except Exception as exc:  # noqa: BLE001 - judge failure falls back to greedy accept
+            logger.debug("Picker judge failed, accepting greedily: %s", exc)
+            verdict = {"verdict": "accept", "reason": "", "suggested_query": None}
+        if verdict.get("verdict") == "reject":
+            suggested = verdict.get("suggested_query")
+            reject_reason = str(verdict.get("reason", ""))
+            trace.append(
+                {
+                    "tool": "choose_picker_candidate",
+                    "query": query,
+                    "status": "llm_rejected",
+                    "reason": reject_reason,
+                    "product_id": product.get("id"),
+                }
+            )
+            self._log_rejection(query, title, "llm_rejected", reject_reason)
+            product = None
+            if isinstance(suggested, str) and suggested.strip() and steps_left > 0:
+                extra_steps = 1
+                product = await self._resolve_candidate(
+                    suggested.strip(), quantity, False, max_price, category, allowlist, trace, context
+                )
+                if product is not None:
+                    effective_query = suggested.strip()
+                    trace.append(
+                        {
+                            "tool": "search_products",
+                            "query": effective_query,
+                            "status": "llm_reformulated",
+                            "product_id": product.get("id"),
+                        }
+                    )
+                    if (failed := _reject_irrelevant(product, effective_query)) is not None:
+                        return failed
+            if product is None:
+                if record_miss:
+                    unfulfilled.append(query)
+                return None, remaining, extra_steps
+        index = await self._choose_index([product], remaining if remaining != math.inf else budget, goal, query)
+        if index == gemini_service.ADVISOR_VETO:
+            veto_reason = "advisor rejected every candidate for the query"
+            trace.append(
+                {
+                    "tool": "choose_picker_candidate",
+                    "query": query,
+                    "status": "advisor_veto",
+                    "reason": veto_reason,
+                    "product_id": product.get("id"),
+                }
+            )
+            return _miss("advisor_veto", str(product.get("title", "")), veto_reason)
+        chosen = [product][index]
+        score = planner.score(chosen, remaining if remaining != math.inf else 10**12)
+        if score < 0:
+            trace.append({"tool": "search_products", "query": query, "status": "rejected_over_budget"})
+            return _miss("rejected_over_budget", str(chosen.get("title", "")))
+        chosen = await self._enrich_details(chosen, allowlist, trace, context)
+        if remaining != math.inf:
+            remaining = round(remaining - float(chosen.get("price", 0.0)) * quantity, 2)
+        success_entry: dict[str, Any] = {
+            "tool": "search_products",
+            "query": query,
+            "status": success_status,
+            "product_id": chosen.get("id"),
+        }
+        if trace_extra:
+            success_entry.update(trace_extra)
+        trace.append(success_entry)
+        return chosen, remaining, extra_steps
+
+    async def _retry_unfulfilled_nearby(
+        self,
+        seed: list[dict[str, Any]],
+        accepted: list[dict[str, Any]],
+        unfulfilled: list[str],
+        trace: list[dict[str, Any]],
+        remaining: float,
+        budget: float,
+        goal: str,
+        planner: Any,
+        hard: bool,
+        allowlist: set[str],
+        context: dict[str, str] | None,
+        delivery_address: str | None,
+        steps: int,
+    ) -> tuple[float, int]:
+        """Re-searches assortment misses in nearby branches, closest first.
+
+        Only branch-dependent misses (`not_found`, `rejected_irrelevant`) are
+        retried: constraint/judge/advisor/budget rejections decide the same
+        everywhere. Every attempt consumes the shared step budget.
+        """
+        retryable_statuses = {"not_found", "rejected_irrelevant"}
+        last_status: dict[str, str] = {}
+        for entry in trace:
+            if isinstance(entry, dict) and entry.get("query"):
+                last_status[str(entry["query"])] = str(entry.get("status", ""))
+        retryable = [query for query in unfulfilled if last_status.get(query) in retryable_statuses]
+        if not retryable or steps >= self._max_steps or context is None:
+            logger.info(
+                "nearby retry skipped reason=%s unfulfilled=%d steps=%d/%d",
+                "no_retryable_misses"
+                if not retryable
+                else ("steps_exhausted" if steps >= self._max_steps else "no_context"),
+                len(unfulfilled),
+                steps,
+                self._max_steps,
+            )
+            return remaining, steps
+        finder = getattr(self._products, "find_nearby_contexts", None)
+        if finder is None:
+            logger.info("nearby retry skipped reason=no_branch_finder")
+            return remaining, steps
+        try:
+            nearby = await finder(delivery_address, context)
+        except Exception as exc:  # noqa: BLE001 - nearby lookup never blocks picking
+            logger.debug("Nearby branch lookup failed: %s", exc)
+            return remaining, steps
+        if not nearby:
+            logger.info("nearby retry skipped reason=no_nearby_branches address=%s", bool(delivery_address))
+            return remaining, steps
+        by_query = {str(item.get("query", "")): item for item in seed}
+        resolved: set[str] = set()
+        for query in retryable:
+            if query in resolved or steps >= self._max_steps:
+                continue
+            item = by_query.get(query, {})
+            try:
+                quantity = int(item.get("quantity", 1) or 1)
+            except (TypeError, ValueError):
+                quantity = 1
+            category = item.get("category")
+            prefer_private_label = bool(item.get("prefer_private_label", False))
+            for alt in nearby:
+                if steps >= self._max_steps:
+                    break
+                alt_context = {
+                    key: str(alt[key])
+                    for key in ("branch_id", "delivery_type", "timeslot_start", "timeslot_end")
+                    if alt.get(key) is not None
+                }
+                steps += 1
+                product, remaining, extra = await self._evaluate_candidate(
+                    query,
+                    quantity,
+                    prefer_private_label,
+                    category,
+                    allowlist,
+                    trace,
+                    alt_context,
+                    remaining,
+                    budget,
+                    goal,
+                    planner,
+                    hard,
+                    unfulfilled,
+                    self._max_steps - steps,
+                    success_status="accepted_nearby",
+                    record_miss=False,
+                    trace_extra={"branch_id": alt.get("branch_id"), "distance_km": alt.get("distance_km")},
+                )
+                steps += extra
+                if product is not None:
+                    accepted.append(product)
+                    if query in unfulfilled:
+                        unfulfilled.remove(query)
+                    resolved.add(query)
+                    break
+        return remaining, steps
+
     async def run(self, state: SilpoAgentState) -> dict[str, Any]:
         planner = get_domain_planner(state.get("intent"))
         budget = state.get("budget", 0.0) or 0.0
@@ -485,19 +738,20 @@ class PickerService:
         remaining = budget if budget > 0 else math.inf
         goal = self._build_goal(state)
 
-        def ceiling() -> float | None:
-            return remaining if hard and budget > 0 else None
-
         context = state.get("shopping_context") or await self._products.resolve_shopping_context(
             state.get("delivery_address")
         )
 
         seed = list(state.get("calculated_items") or []) or planner.plan(state)
-        try:
-            formulated = await self._formulator.formulate(goal, seed)
-        except Exception as exc:  # noqa: BLE001 - formulation failure keeps the planner seed
-            logger.debug("Picker query formulation failed, using planner seed: %s", exc)
+        meal_plan_seed = bool((state.get("meal_plan") or {}).get("shopping_seed"))
+        if meal_plan_seed:
             formulated = seed
+        else:
+            try:
+                formulated = await self._formulator.formulate(goal, seed)
+            except Exception as exc:  # noqa: BLE001 - formulation failure keeps the planner seed
+                logger.debug("Picker query formulation failed, using planner seed: %s", exc)
+                formulated = seed
         seed = formulated or seed
         accepted: list[dict[str, Any]] = []
         trace: list[dict[str, Any]] = []
@@ -526,107 +780,41 @@ class PickerService:
                 unfulfilled.append(query)
                 continue
             steps += 1
-            product = await self._resolve_candidate(
+            product, remaining, extra = await self._evaluate_candidate(
                 query,
                 quantity,
                 bool(item.get("prefer_private_label", False)),
-                ceiling(),
                 category,
                 allowlist,
                 trace,
                 context,
+                remaining,
+                budget,
+                goal,
+                planner,
+                hard,
+                unfulfilled,
+                self._max_steps - steps,
             )
-            if product is None:
-                unfulfilled.append(query)
-                continue
-            violated, violation = violates_hard_constraints(str(product.get("title", "")), goal)
-            if violated:
-                unfulfilled.append(query)
-                trace.append(
-                    {
-                        "tool": "search_products",
-                        "query": query,
-                        "status": "rejected_constraint",
-                        "reason": violation,
-                        "product_id": product.get("id"),
-                    }
-                )
-                continue
-            effective_query = query
-            try:
-                verdict = await self._judge.judge(query, product, goal)
-            except Exception as exc:  # noqa: BLE001 - judge failure falls back to greedy accept
-                logger.debug("Picker judge failed, accepting greedily: %s", exc)
-                verdict = {"verdict": "accept", "reason": "", "suggested_query": None}
-            if verdict.get("verdict") == "reject":
-                suggested = verdict.get("suggested_query")
-                trace.append(
-                    {
-                        "tool": "choose_picker_candidate",
-                        "query": query,
-                        "status": "llm_rejected",
-                        "reason": str(verdict.get("reason", "")),
-                        "product_id": product.get("id"),
-                    }
-                )
-                product = None
-                if isinstance(suggested, str) and suggested.strip() and steps < self._max_steps:
-                    steps += 1
-                    product = await self._resolve_candidate(
-                        suggested.strip(), quantity, False, ceiling(), category, allowlist, trace, context
-                    )
-                    if product is not None:
-                        effective_query = suggested.strip()
-                        trace.append(
-                            {
-                                "tool": "search_products",
-                                "query": effective_query,
-                                "status": "llm_reformulated",
-                                "product_id": product.get("id"),
-                            }
-                        )
-                if product is None:
-                    unfulfilled.append(query)
-                    continue
-            relevant, reason = is_relevant(effective_query, str(product.get("title", "")))
-            if not relevant:
-                unfulfilled.append(query)
-                trace.append(
-                    {
-                        "tool": "search_products",
-                        "query": query,
-                        "status": "rejected_irrelevant",
-                        "reason": reason,
-                        "product_id": product.get("id"),
-                    }
-                )
-                continue
-            index = await self._choose_index([product], remaining if remaining != math.inf else budget, goal, query)
-            if index == gemini_service.ADVISOR_VETO:
-                unfulfilled.append(query)
-                trace.append(
-                    {
-                        "tool": "choose_picker_candidate",
-                        "query": query,
-                        "status": "advisor_veto",
-                        "reason": "advisor rejected every candidate for the query",
-                        "product_id": product.get("id"),
-                    }
-                )
-                continue
-            chosen = [product][index]
-            score = planner.score(chosen, remaining if remaining != math.inf else 10**12)
-            if score < 0:
-                unfulfilled.append(query)
-                trace.append({"tool": "search_products", "query": query, "status": "rejected_over_budget"})
-                continue
-            chosen = await self._enrich_details(chosen, allowlist, trace, context)
-            accepted.append(chosen)
-            if remaining != math.inf:
-                remaining = round(remaining - float(chosen.get("price", 0.0)) * quantity, 2)
-            trace.append(
-                {"tool": "search_products", "query": query, "status": "accepted", "product_id": chosen.get("id")}
-            )
+            steps += extra
+            if product is not None:
+                accepted.append(product)
+
+        remaining, steps = await self._retry_unfulfilled_nearby(
+            seed,
+            accepted,
+            unfulfilled,
+            trace,
+            remaining,
+            budget,
+            goal,
+            planner,
+            hard,
+            allowlist,
+            context,
+            state.get("delivery_address"),
+            steps,
+        )
 
         categories = {str(p.get("category")) for p in accepted if p.get("category")}
         coverage_ok = all(req in categories for req in planner.min_coverage())

@@ -290,6 +290,83 @@ async def test_parse_intent_multimodal_with_audio_bytes(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_plan_weekly_meals_mock_mode_returns_none(monkeypatch) -> None:
+    import app.services.gemini_service as svc
+
+    monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", True)
+    monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "")
+    from app.services.gemini_service import plan_weekly_meals
+
+    assert await plan_weekly_meals("weekly goal") is None
+
+
+@pytest.mark.asyncio
+async def test_plan_weekly_meals_parses_list_and_keeps_dish(monkeypatch) -> None:
+    import app.services.gemini_service as svc
+
+    monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
+    monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
+
+    async def _fake_agenerate(*args: object, **kwargs: object) -> object:
+        response = MagicMock()
+        response.text = (
+            '[{"query": "Хек свіжоморожений", "category": "meat", "quantity": 2, "dish": "Хек з гречкою"}, '
+            '{"query": "", "category": "general", "quantity": 1}]'
+        )
+        return response
+
+    monkeypatch.setattr(svc, "_agenerate", _fake_agenerate)
+    from app.services.gemini_service import plan_weekly_meals
+
+    seed = await plan_weekly_meals("weekly goal")
+    assert seed == [
+        {
+            "query": "Хек свіжоморожений",
+            "category": "meat",
+            "quantity": 2,
+            "prefer_private_label": False,
+            "dish": "Хек з гречкою",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_plan_weekly_meals_normalizes_fish_category(monkeypatch) -> None:
+    import app.services.gemini_service as svc
+
+    monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
+    monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
+
+    async def _fake_agenerate(*args: object, **kwargs: object) -> object:
+        response = MagicMock()
+        response.text = '[{"query": "Хек свіжоморожений", "category": "fish", "quantity": 2}]'
+        return response
+
+    monkeypatch.setattr(svc, "_agenerate", _fake_agenerate)
+    from app.services.gemini_service import plan_weekly_meals
+
+    seed = await plan_weekly_meals("weekly goal")
+    assert seed is not None
+    assert seed[0]["category"] == "meat"
+
+
+@pytest.mark.asyncio
+async def test_plan_weekly_meals_returns_none_on_failure(monkeypatch) -> None:
+    import app.services.gemini_service as svc
+
+    monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
+    monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
+
+    async def _boom(*args: object, **kwargs: object) -> object:
+        raise RuntimeError("API error")
+
+    monkeypatch.setattr(svc, "_agenerate", _boom)
+    from app.services.gemini_service import plan_weekly_meals
+
+    assert await plan_weekly_meals("weekly goal") is None
+
+
+@pytest.mark.asyncio
 async def test_parse_intent_fallback_on_client_error(monkeypatch) -> None:
     monkeypatch.setenv("GEMINI_MOCK_MODE", "false")
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key")

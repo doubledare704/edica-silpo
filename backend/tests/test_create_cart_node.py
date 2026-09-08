@@ -256,6 +256,248 @@ async def test_create_cart_node_falls_back_when_fulfillment_unresolvable(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_create_cart_clears_stale_items_before_write(monkeypatch) -> None:
+    """A reused server cart must not accumulate items from previous queries."""
+
+    class StaleCartClient:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+        async def get_cart(self):
+            return SimpleNamespace(id="cart-123", items=[{"productId": "stale-1"}])
+
+        async def get_cart_by_id(self, cart_id: str):
+            return {
+                "cartId": cart_id,
+                "branchId": "branch-1",
+                "deliveryType": "SelfPickup",
+                "timeslot": {"startsAt": "2026-09-06T10:00:00", "endsAt": "2026-09-06T12:00:00"},
+                "items": [{"productId": "stale-1"}, {"productId": "stale-2"}],
+                "totals": {"totalPrice": 480.0},
+                "loyalty": {"isEnabled": False, "bonusAvailable": 0.0, "bonusRequested": None},
+                "validations": [],
+                "checkoutWebLink": "https://silpo.ua/checkout/cart-123",
+                "checkoutMobileLink": "silpo://cart/cart-123",
+            }
+
+        async def clear_cart(self, cart_id: str):
+            self.calls.append(f"clear:{cart_id}")
+            return SimpleNamespace()
+
+        async def add_or_update_cart_products(self, cart_id: str, products: list[dict[str, object]]):
+            self.calls.append(f"write:{cart_id}")
+            return SimpleNamespace(share_url="https://silpo.ua/cart/share/cart-123")
+
+    client = StaleCartClient()
+    monkeypatch.setattr(mcp_service.settings, "MCP_MOCK_MODE", False)
+    monkeypatch.setattr(mcp_service.SilpoClient, "for_real_server", lambda: client)
+
+    result = await mcp_service.MCPProductService().create_cart(
+        [
+            {
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "productId": "123e4567-e89b-12d3-a456-426614174000",
+                "companyId": "company-1",
+                "branchId": "branch-1",
+                "quantity": 1,
+            }
+        ]
+    )
+
+    assert client.calls[0] == "clear:cart-123"
+    assert client.calls[1] == "write:cart-123"
+    assert result["cart_url"] == "https://silpo.ua/checkout/cart-123"
+
+
+@pytest.mark.asyncio
+async def test_create_cart_continues_write_when_clear_fails(monkeypatch) -> None:
+    class FailingClearClient:
+        def __init__(self) -> None:
+            self.written = False
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+        async def get_cart(self):
+            return SimpleNamespace(id="cart-123", items=[{"productId": "stale-1"}])
+
+        async def get_cart_by_id(self, cart_id: str):
+            return {
+                "cartId": cart_id,
+                "branchId": "branch-1",
+                "deliveryType": "SelfPickup",
+                "timeslot": {"startsAt": "2026-09-06T10:00:00", "endsAt": "2026-09-06T12:00:00"},
+                "items": [{"productId": "stale-1"}],
+                "totals": {"totalPrice": 480.0},
+                "loyalty": {"isEnabled": False, "bonusAvailable": 0.0, "bonusRequested": None},
+                "validations": [],
+                "checkoutWebLink": "https://silpo.ua/checkout/cart-123",
+                "checkoutMobileLink": "silpo://cart/cart-123",
+            }
+
+        async def clear_cart(self, cart_id: str):
+            raise RuntimeError("clear unavailable")
+
+        async def add_or_update_cart_products(self, cart_id: str, products: list[dict[str, object]]):
+            self.written = True
+            return SimpleNamespace(share_url="https://silpo.ua/cart/share/cart-123")
+
+    client = FailingClearClient()
+    monkeypatch.setattr(mcp_service.settings, "MCP_MOCK_MODE", False)
+    monkeypatch.setattr(mcp_service.SilpoClient, "for_real_server", lambda: client)
+
+    result = await mcp_service.MCPProductService().create_cart(
+        [
+            {
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "productId": "123e4567-e89b-12d3-a456-426614174000",
+                "companyId": "company-1",
+                "branchId": "branch-1",
+                "quantity": 1,
+            }
+        ]
+    )
+
+    assert client.written is True
+    assert result["cart_url"] == "https://silpo.ua/checkout/cart-123"
+
+
+@pytest.mark.asyncio
+async def test_create_cart_empty_products_clears_and_returns_real_url(monkeypatch) -> None:
+    """An all-miss query must yield a real (empty) cart, not a mock fallback URL."""
+
+    class EmptyWriteClient:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+        async def get_cart(self):
+            return SimpleNamespace(id="cart-123", items=[{"productId": "stale-1"}])
+
+        async def get_cart_by_id(self, cart_id: str):
+            return {
+                "cartId": cart_id,
+                "branchId": "branch-1",
+                "deliveryType": "SelfPickup",
+                "timeslot": {"startsAt": "2026-09-06T10:00:00", "endsAt": "2026-09-06T12:00:00"},
+                "items": [{"productId": "stale-1"}],
+                "totals": {"totalPrice": 0.0},
+                "loyalty": {"isEnabled": False, "bonusAvailable": 0.0, "bonusRequested": None},
+                "validations": [],
+                "checkoutWebLink": "https://silpo.ua/checkout/cart-123",
+                "checkoutMobileLink": "silpo://cart/cart-123",
+            }
+
+        async def clear_cart(self, cart_id: str):
+            self.calls.append(f"clear:{cart_id}")
+            return SimpleNamespace()
+
+        async def add_or_update_cart_products(self, cart_id: str, products: list[dict[str, object]]):
+            self.calls.append(f"write:{cart_id}")
+            return SimpleNamespace(share_url="https://silpo.ua/cart/share/cart-123")
+
+    client = EmptyWriteClient()
+    monkeypatch.setattr(mcp_service.settings, "MCP_MOCK_MODE", False)
+    monkeypatch.setattr(mcp_service.SilpoClient, "for_real_server", lambda: client)
+
+    result = await mcp_service.MCPProductService().create_cart([])
+
+    assert client.calls == ["clear:cart-123"]
+    assert result["cart_url"] == "https://silpo.ua/checkout/cart-123"
+
+
+@pytest.mark.asyncio
+async def test_create_cart_empty_products_creates_missing_cart(monkeypatch) -> None:
+    class NoCartClient:
+        def __init__(self) -> None:
+            self.created = False
+            self.calls: list[str] = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+        async def get_cart(self):
+            return SimpleNamespace(cart_id=None, shopping_cart_id=None, exists=False)
+
+        async def create_shopping_cart(self, **kwargs):
+            self.created = True
+            return SimpleNamespace(success=True, shopping_cart_id="cart-new")
+
+        async def get_cart_by_id(self, cart_id: str):
+            return {
+                "cartId": cart_id,
+                "branchId": "bran-1",
+                "deliveryType": "SelfPickup",
+                "timeslot": {"startsAt": "2026-09-06T10:00:00", "endsAt": "2026-09-06T12:00:00"},
+                "items": [],
+                "totals": {"totalPrice": 0.0},
+                "loyalty": {"isEnabled": False, "bonusAvailable": 0.0, "bonusRequested": None},
+                "validations": [],
+                "checkoutWebLink": "https://silpo.ua/checkout/cart-new",
+                "checkoutMobileLink": "silpo://cart/cart-new",
+            }
+
+        async def clear_cart(self, cart_id: str):
+            self.calls.append(f"clear:{cart_id}")
+            return SimpleNamespace()
+
+    client = NoCartClient()
+    monkeypatch.setattr(mcp_service.settings, "MCP_MOCK_MODE", False)
+    monkeypatch.setattr(mcp_service.SilpoClient, "for_real_server", lambda: client)
+
+    fulfillment = {
+        "address_type": "delivery",
+        "latitude": 50.4,
+        "longitude": 30.6,
+        "delivery_type": "SelfPickup",
+        "branch_id": "bran-1",
+        "timeslot_start": "2026-09-06T10:00:00",
+        "timeslot_end": "2026-09-06T12:00:00",
+    }
+    result = await mcp_service.MCPProductService().create_cart([], fulfillment)
+
+    assert client.created is True
+    assert client.calls == []
+    assert result["cart_url"] == "https://silpo.ua/checkout/cart-new"
+
+
+@pytest.mark.asyncio
+async def test_create_cart_empty_products_without_fulfillment_raises(monkeypatch) -> None:
+    class NoCartNoAddressClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+        async def get_cart(self):
+            return SimpleNamespace(cart_id=None, shopping_cart_id=None, exists=False)
+
+    monkeypatch.setattr(mcp_service.settings, "MCP_MOCK_MODE", False)
+    monkeypatch.setattr(mcp_service.SilpoClient, "for_real_server", NoCartNoAddressClient)
+
+    with pytest.raises(ValueError, match="no active cart"):
+        await mcp_service.MCPProductService().create_cart([])
+
+
+@pytest.mark.asyncio
 async def test_create_cart_node_keeps_summary_when_real_cart_fails(monkeypatch) -> None:
     async def fail_create_cart(products, fulfillment=None):
         raise RuntimeError("MCP unavailable")
