@@ -15,6 +15,11 @@ async def plan_domain_logic_node(state: SilpoAgentState) -> dict[str, Any]:
     when research is unavailable (mock mode, no key, or any failure).
     """
     intent = state.get("intent")
+    meal_plan = state.get("meal_plan") or {}
+    seed = list(meal_plan.get("shopping_seed") or [])
+    if seed:
+        logger.info("plan_domain_logic done intent=%s items=%d researched=meal_plan", intent, len(seed))
+        return {"calculated_items": seed}
     user_text = (state.get("user_text") or "").strip()[:300]
     raw_requests = list(state.get("raw_item_requests") or [])
     goal = (

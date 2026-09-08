@@ -4,6 +4,7 @@ from .mcp_fetch import mcp_fetch_node
 from .parse_intent import parse_intent_node
 from .picker import picker_node
 from .plan_domain_logic import plan_domain_logic_node
+from .plan_meals import plan_meals_node
 from .stt import stt_node
 from .tts import tts_node
 from .unsupported import unsupported_request_node
@@ -15,6 +16,7 @@ __all__ = [
     "parse_intent_node",
     "picker_node",
     "plan_domain_logic_node",
+    "plan_meals_node",
     "stt_node",
     "tts_node",
     "unsupported_request_node",

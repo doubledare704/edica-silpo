@@ -295,12 +295,111 @@ class BudgetDomainPlanner:
         ("Курка", "meat", 1.0),
     ]
 
+    _REQUEST_CATEGORIES: ClassVar[tuple[tuple[str, tuple[str, ...]], ...]] = (
+        ("fish", ("риб", "хек", "минтай", "лосось", "тунец", "тунець", "короп", "дорадо", "пангасіус")),
+        (
+            "vegetables",
+            (
+                "овоч",
+                "помідор",
+                "огір",
+                "перець",
+                "кукурудз",
+                "картопл",
+                "цибул",
+                "моркв",
+                "кабачок",
+                "баклажан",
+                "капуст",
+            ),
+        ),
+        (
+            "grocery",
+            (
+                "круп",
+                "греч",
+                "рис",
+                "макарон",
+                "вівсян",
+                "манн",
+                "пшон",
+                "олія",
+                "олі",
+                "цукор",
+                "борошн",
+                "булгур",
+                "кускус",
+            ),
+        ),
+        ("dairy", ("молок", "кефір", "йогурт", "сметан")),
+        ("bakery", ("хліб", "батон", "булк")),
+        ("meat", ("курк", "куря", "м'яс", "мяс", "свин", "ялович", "індик", "качк")),
+    )
+
+    _WEEKLY_RATE_BY_CATEGORY: ClassVar[dict[str, float]] = {
+        "fish": 1.0,
+        "meat": 1.0,
+        "vegetables": 2.0,
+        "grocery": 0.5,
+        "dairy": 2.0,
+        "bakery": 2.0,
+    }
+
+    @classmethod
+    def _classify_request(cls, request: str) -> str:
+        lowered = request.lower()
+        for category, markers in cls._REQUEST_CATEGORIES:
+            if any(marker in lowered for marker in markers):
+                return category
+        return "general"
+
     def plan(self, state: SilpoAgentState) -> list[dict[str, Any]]:
         people_count = state.get("people_count") or 2
         is_retry = state.get("is_budget_exceeded", False)
         attempts = state.get("attempts", 0)
+        raw_requests = [request for request in (state.get("raw_item_requests") or []) if request.strip()]
 
-        items: list[dict[str, Any]] = []
+        def _qty_for(category: str) -> int:
+            rate = self._WEEKLY_RATE_BY_CATEGORY.get(category, 1.0)
+            qty = max(1, math.ceil(people_count * rate))
+            if is_retry and attempts > 0:
+                qty = max(1, qty - attempts)
+            return qty
+
+        if raw_requests:
+            items: list[dict[str, Any]] = []
+            for request in raw_requests:
+                category = self._classify_request(request)
+                query = request
+                if category == "fish" and "хек" not in request.lower() and "минтай" not in request.lower():
+                    query = "Хек свіжоморожений"
+                planner_category = "meat" if category == "fish" else category
+                items.append(
+                    {
+                        "query": query,
+                        "category": planner_category,
+                        "quantity": _qty_for(category),
+                        "prefer_private_label": True,
+                    }
+                )
+            covered = {str(item["category"]) for item in items}
+            for query, category, _ in self._WEEKLY_STAPLES:
+                if category in covered:
+                    continue
+                if category == "meat" and "meat" in covered:
+                    continue
+                items.append(
+                    {
+                        "query": query,
+                        "category": category,
+                        "quantity": _qty_for(category),
+                        "prefer_private_label": True,
+                    }
+                )
+                covered.add(category)
+            return items
+
+        items = []
         for query, category, weekly_rate in self._WEEKLY_STAPLES:
             qty = max(1, math.ceil(people_count * weekly_rate))
             if is_retry and attempts > 0:

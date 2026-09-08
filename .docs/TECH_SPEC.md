@@ -18,7 +18,7 @@ The 3.5 Flash Lite model is intentional: it provides lower availability and rate
 - `messages: Annotated[list[BaseMessage], add_messages]`
 - audio input: `audio_bytes`, `user_text`
 - intent: `intent`, `budget`, `people_count`, `dietary_restrictions`, `raw_item_requests`
-- shopping: `calculated_items`, `mcp_products`, `total_price`
+- shopping: `calculated_items`, `meal_plan` (7-day `days` + `shopping_seed` for weekly budget queries; `None` otherwise), `mcp_products`, `total_price`
 - picker: `remaining_budget` (budget minus priced picks; `0.0` when no budget is set),
   `unfulfilled_requests` (requested items not yet picked), `is_requirements_met`
   (coverage of planner `min_coverage` categories), `picker_trace` (tool calls for SSE/debug),
@@ -42,6 +42,7 @@ All application code imports `SilpoAgentState` directly.
 START
   -> stt
   -> parse_intent
+  -> plan_meals
   -> plan_domain_logic
   -> picker
   -> check_constraints

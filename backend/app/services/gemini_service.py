@@ -9,6 +9,7 @@ from google.genai import types
 from ..common.prompts import (
     _GEMINI_INTENT_PROMPT,
     _GEMINI_TRANSCRIBE_PROMPT,
+    _GEMINI_WEEKLY_MEAL_PROMPT,
     _MOCK_TRANSCRIPTION,
 )
 from ..config import settings
@@ -254,6 +255,29 @@ async def research_menu(goal: str) -> list[dict[str, Any]] | None:
         return _sanitize_seed(json.loads(_extract_json_list(text)), ("dish", "note"))
     except Exception as exc:  # noqa: BLE001 - research failure must fall back to planner seed
         logger.debug("Gemini menu research failed, using planner fallback: %s", exc)
+        return None
+
+
+async def plan_weekly_meals(goal: str) -> list[dict[str, Any]] | None:
+    """Builds a budget-aware 7-day shopping seed; None means use deterministic fallback."""
+    if settings.GEMINI_MOCK_MODE or not settings.GEMINI_API_KEY:
+        return None
+    try:
+        response = await _agenerate(
+            model=settings.GEMINI_MODEL,
+            contents=[_GEMINI_WEEKLY_MEAL_PROMPT + " Ціль: " + goal],
+            config=types.GenerateContentConfig(
+                temperature=0.2,
+                response_mime_type="application/json",
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            ),
+        )
+        text = response.text
+        if not text or not text.strip():
+            return None
+        return _sanitize_seed(json.loads(_extract_json_list(text)), ("dish",))
+    except Exception as exc:  # noqa: BLE001 - failure keeps deterministic fallback
+        logger.debug("Gemini weekly meal plan failed, using fallback: %s", exc)
         return None
 
 

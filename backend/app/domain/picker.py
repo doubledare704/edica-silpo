@@ -82,6 +82,30 @@ _REUSABLE_TITLE_MARKERS = ("термочашка", "термокружка", "т
 _DISPOSABLE_TITLE_MARKERS = ("одноразов", "паперов", "пластик", "disposable")
 
 _BUDGET_FILL_LOW = 0.70
+_MAX_TOP_UP_QTY = 6
+
+_FISH_MARKERS = (
+    "риб",
+    "хек",
+    "минтай",
+    "лосось",
+    "тунец",
+    "тунець",
+    "короп",
+    "дорадо",
+    "пангасіус",
+)
+
+_CEREAL_SUBTYPES = (
+    "греч",
+    "рис",
+    "вівсян",
+    "манн",
+    "пшон",
+    "макарон",
+    "булгур",
+    "кускус",
+)
 
 _ALCOHOLIC_TITLE_MARKERS = (
     "віскі",
@@ -145,6 +169,12 @@ def is_relevant(query: str, title: str) -> tuple[bool, str]:
         marker in title_norm for marker in _NON_ALCOHOLIC_TITLE_MARKERS
     ):
         return False, "алкогольний товар замість безалкогольного"
+    if "риб" in query_norm and any(marker in title_norm for marker in _FISH_MARKERS):
+        return True, ""
+    query_subtypes = [sub for sub in _CEREAL_SUBTYPES if sub in query_norm]
+    title_subtypes = [sub for sub in _CEREAL_SUBTYPES if sub in title_norm]
+    if query_subtypes and title_subtypes and not set(query_subtypes) & set(title_subtypes):
+        return False, f"інший вид крупи: «{title}» не відповідає запиту «{query}»"
     query_tokens = [_token_key(token) for token in _content_tokens(query_norm)]
     title_tokens = [_token_key(token) for token in _content_tokens(title_norm)]
     if any(_tokens_shared(query_token, title_token) for query_token in query_tokens for title_token in title_tokens):
@@ -404,6 +434,8 @@ class PickerService:
         Never exceeds the hard budget ceiling and needs no extra searches: it only
         grows quantities of already accepted products. Charcoal and promos are out
         of scope — nobody needs four bags of coal for a bigger budget.
+        Each SKU is capped at _MAX_TOP_UP_QTY so a cheap staple cannot inflate
+        to 30+ units for a weekly budget.
         """
         target = round(budget * _BUDGET_FILL_LOW, 2)
         total = round(budget - remaining, 2)
@@ -425,6 +457,8 @@ class PickerService:
                     quantity = int(product.get("quantity", 1) or 1)
                 except (TypeError, ValueError):
                     quantity = 1
+                if quantity >= _MAX_TOP_UP_QTY:
+                    continue
                 product["quantity"] = quantity + 1
                 total = round(total + unit, 2)
                 remaining = round(remaining - unit, 2)
@@ -598,7 +632,7 @@ class PickerService:
         coverage_ok = all(req in categories for req in planner.min_coverage())
         is_met = bool(accepted) and coverage_ok and not unfulfilled
 
-        if hard and budget > 0 and remaining != math.inf and accepted:
+        if hard and budget > 0 and remaining != math.inf and accepted and is_met:
             remaining = self._top_up_to_band(accepted, budget, remaining, trace)
 
         if hard and budget > 0 and is_met and remaining != math.inf:

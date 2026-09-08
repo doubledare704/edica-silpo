@@ -18,6 +18,8 @@ _ITEM_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("курка", ("курк", "курятин", "курча")),
     ("печериці", ("печериц", "шампіньйон", "глив", "гриб")),
     ("овочі", ("овоч", "помідор", "огір", "перець", "кукурудз")),
+    ("риба", ("риб", "хек", "минтай", "лосось", "тунец", "тунець", "короп", "дорадо")),
+    ("крупа", ("круп", "греч", "рис", "вівсян", "манн", "пшон", "булгур", "кускус")),
     ("пиво", ("пиво", "пива")),
     ("вода", ("вода", "води", "воду")),
     ("хліб", ("хліб",)),
@@ -60,7 +62,7 @@ def _extract_item_requests(text_lower: str) -> list[str]:
 def extract_intent_fallback(text: str) -> ParsedIntentSchema:
     text_lower = text.lower()
 
-    if any(keyword in text_lower for keyword in ["бюджет", "дешев", "економ"]):
+    if any(keyword in text_lower for keyword in ["бюджет", "дешев", "економ", "тиждень", "тижнев", "на тиждень"]):
         intent = IntentEnum.BUDGET
     elif any(keyword in text_lower for keyword in ["офіс", "office", "снет"]):
         intent = IntentEnum.OFFICE
@@ -83,6 +85,9 @@ def extract_intent_fallback(text: str) -> ParsedIntentSchema:
             "овоч",
             "напої",
             "вугілля",
+            "риб",
+            "круп",
+            "греч",
         ]
     ):
         intent = IntentEnum.PARTY

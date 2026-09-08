@@ -19,13 +19,14 @@ def test_node_name_values() -> None:
     assert NodeName.SHOPPER_AGENT == "shopper_agent"
     assert NodeName.PARSE_INTENT == "parse_intent"
     assert NodeName.UNSUPPORTED == "unsupported"
+    assert NodeName.PLAN_MEALS == "plan_meals"
     assert NodeName.PLAN_DOMAIN_LOGIC == "plan_domain_logic"
     assert NodeName.MCP_FETCH == "mcp_fetch"
     assert NodeName.PICKER == "picker"
     assert NodeName.CHECK_CONSTRAINTS == "check_constraints"
     assert NodeName.CREATE_CART == "create_cart"
     assert NodeName.TTS == "tts"
-    assert len(NodeName) == 10
+    assert len(NodeName) == 11
 
 
 def test_sse_event_values() -> None:

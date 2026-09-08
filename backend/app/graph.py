@@ -13,6 +13,7 @@ from .nodes import (
     parse_intent_node,
     picker_node,
     plan_domain_logic_node,
+    plan_meals_node,
     stt_node,
     tts_node,
     unsupported_request_node,
@@ -35,11 +36,11 @@ def route_constraints(state: SilpoAgentState) -> Literal["picker", "create_cart"
     return NodeName.CREATE_CART.value
 
 
-def route_parsed_intent(state: SilpoAgentState) -> Literal["unsupported", "plan_domain_logic"]:
+def route_parsed_intent(state: SilpoAgentState) -> Literal["unsupported", "plan_meals"]:
     """Skip all shopping work for intents outside the supported domains."""
     if state.get("intent") == IntentEnum.UNSUPPORTED:
         return NodeName.UNSUPPORTED.value
-    return NodeName.PLAN_DOMAIN_LOGIC.value
+    return NodeName.PLAN_MEALS.value
 
 
 def create_silpo_agent_graph(checkpointer: MemorySaver | None = None) -> CompiledStateGraph:
@@ -49,6 +50,7 @@ def create_silpo_agent_graph(checkpointer: MemorySaver | None = None) -> Compile
     workflow.add_node(NodeName.STT, stt_node)
     workflow.add_node(NodeName.PARSE_INTENT, parse_intent_node)
     workflow.add_node(NodeName.UNSUPPORTED, unsupported_request_node)
+    workflow.add_node(NodeName.PLAN_MEALS, plan_meals_node)
     workflow.add_node(NodeName.PLAN_DOMAIN_LOGIC, plan_domain_logic_node)
     workflow.add_node(NodeName.PICKER, picker_node)
     workflow.add_node(NodeName.CHECK_CONSTRAINTS, check_constraints_node)
@@ -62,9 +64,10 @@ def create_silpo_agent_graph(checkpointer: MemorySaver | None = None) -> Compile
         route_parsed_intent,
         {
             NodeName.UNSUPPORTED: NodeName.UNSUPPORTED,
-            NodeName.PLAN_DOMAIN_LOGIC: NodeName.PLAN_DOMAIN_LOGIC,
+            NodeName.PLAN_MEALS: NodeName.PLAN_MEALS,
         },
     )
+    workflow.add_edge(NodeName.PLAN_MEALS, NodeName.PLAN_DOMAIN_LOGIC)
     workflow.add_edge(NodeName.PLAN_DOMAIN_LOGIC, NodeName.PICKER)
     workflow.add_edge(NodeName.PICKER, NodeName.CHECK_CONSTRAINTS)
     workflow.add_conditional_edges(

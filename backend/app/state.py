@@ -18,6 +18,7 @@ class SilpoAgentState(TypedDict, total=False):
     dietary_restrictions: NotRequired[list[str]]
     raw_item_requests: NotRequired[list[str]]
     calculated_items: NotRequired[list[dict[str, Any]]]
+    meal_plan: NotRequired[dict[str, Any] | None]
     mcp_products: NotRequired[list[dict[str, Any]]]
     total_price: NotRequired[float]
     attempts: NotRequired[int]

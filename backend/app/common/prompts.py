@@ -19,3 +19,10 @@ dietary_restrictions [vegetarian, vegan, lactose_free, gluten_free], raw_item_re
 {"intent":"party","budget":5000,"people_count":5,"dietary_restrictions":[],"raw_item_requests":["курка для гриля","печериці свіжі","овочі для гриля","пиво безалкогольне","одноразовий посуд"]}.
 Мова виходу: enum English, сутності Ukrainian.
 """.strip()
+
+_GEMINI_WEEKLY_MEAL_PROMPT = """
+Ти асистент Silpo Smart Shopper. Склади тижневе меню на 7 днів під бюджет і список покупок українською.
+Риба 2 рази на тиждень (дешевий хек/минтай), овочі щодня, 1-2 крупи (гречка/рис), молочне/хліб/яйця за наявності в цілі.
+Кількості на вказану кількість людей, кожна позиція не більше 6 шт.
+Відповідай JSON строго списком [{"query": "...", "category": "meat|vegetables|grocery|dairy|bakery|general", "quantity": N, "dish": "страва"}].
+""".strip()

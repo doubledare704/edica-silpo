@@ -68,6 +68,7 @@ async def _sse_generator(
         "dietary_restrictions": [],
         "raw_item_requests": [],
         "calculated_items": [],
+        "meal_plan": None,
         "mcp_products": [],
         "total_price": 0.0,
         "attempts": 0,

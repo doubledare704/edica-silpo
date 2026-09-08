@@ -3,7 +3,7 @@
 ## Current Architecture
 
 ```text
-START -> stt -> parse_intent -> plan_domain_logic -> picker
+START -> stt -> parse_intent -> plan_meals -> plan_domain_logic -> picker
        -> check_constraints -- exceeded/unmet --> picker
        -> create_cart -> tts -> END
 ```
@@ -36,6 +36,7 @@ START -> stt -> parse_intent -> plan_domain_logic -> picker
 - Official Silpo cart flow: cart-first context with slot revalidation, delivery update on change, upsert without clearing, post-write verify (validations/loyalty/checkout links); picker retries only previous misses.
 - Delivery update is best-effort (warn-and-continue) with shipments built from written items, so a rejected update never kills a valid cart write.
 - Weekly budget planner: 8 calorie-priority staples with 7-day quantities scaled by people; picker retries misses with simplified (first-word) queries.
+- Weekly budget diversity fix: `BudgetDomainPlanner` honors `raw_item_requests` (fish→хек protein, veg, cereal) with weekly rates and backfills missing staples without chicken when fish covers protein; intent fallback extracts риба/крупа and routes тиждень→BUDGET; relevance rejects other cereal subtype (гречана≠манна) and accepts риба→хек; picker top-up capped at 6 per SKU and runs only when requirements met, so 2000 грн weekly yields diverse cart instead of 38× manna.
 - Cart card bugfixes: live server `totalPrice=0` no longer clobbers the computed total (non-zero verified totals stay authoritative); `CartItemsPreview` uses unique per-render keys so duplicate SKUs no longer crash the `each` block and break the expand toggle; product `image_url` flows from MCP normalization through SSE `node_complete` into the preview tiles with emoji fallback.
 
 ## Configuration
@@ -69,6 +70,7 @@ npm run test:run --prefix frontend
 - [x] Party planner honors `raw_item_requests` (chicken/mushrooms/non-alcoholic) instead of hardcoded seed queries.
 - [x] Picker advisor prompt: pass original query + `{"reject": true}` veto; intent prompt few-shots for grill/non-alcoholic extraction.
 - [x] Grounded-research 400 fix: drop `response_mime_type` with the search tool (API rejects the combo), bare-JSON prompt + list extraction (live smoke caught it always falling back).
+- [x] Weekly plan_meals node for budget weekly-menu queries: dedicated `plan_meals` node (BUDGET + budget + weekly marker) builds 7-day `meal_plan` via `plan_weekly_meals` LLM with deterministic planner fallback; `plan_domain_logic` prefers `meal_plan.shopping_seed`; non-weekly passthrough preserves party/office/gourmet flow.
 - [ ] Run gated live Gemini/MCP smoke tests with real credentials.
   Status: parse/formulate/judge verified live OK (`test_gemini_live.py`, throttled, quota-aware skips);
   grounded `research_menu` still unverified live — key's token quota starved (light calls pass, grounded 429s);

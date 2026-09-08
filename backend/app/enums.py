@@ -14,6 +14,7 @@ class NodeName(StrEnum):
     SHOPPER_AGENT = "shopper_agent"
     PARSE_INTENT = "parse_intent"
     UNSUPPORTED = "unsupported"
+    PLAN_MEALS = "plan_meals"
     PLAN_DOMAIN_LOGIC = "plan_domain_logic"
     MCP_FETCH = "mcp_fetch"
     PICKER = "picker"
