@@ -81,7 +81,7 @@ npm run test:run --prefix frontend
 - [x] Query-in-progress hero: `QueryInProgress` shows the submitted query in an animated gradient border (global `query-flow` keyframes, reduced-motion safe) instead of dead disabled inputs while streaming; voice queries fall back to a voice label.
 - [x] Remove the unused header microphone icon and wire the discounts navigation item to a real page.
 - [x] Bonuses and lower-price offers: add `/api/offers` backed by Silpo MCP and a responsive `/discounts` page for bonuses, promotions, discounted products, coupons, and promo codes.
-- [ ] Profile page: add `/api/profile` and `/profile` with saved delivery address, delivery settings, and preferred Silpo branches.
+- [x] Profile page: add `/api/profile` and `/profile` with MCP profile/loyalty data, saved delivery address, delivery settings, and preferred Silpo branches.
 - [ ] Run gated live Gemini/MCP smoke tests with real credentials.
   Status: parse/formulate/judge verified live OK (`test_gemini_live.py`, throttled, quota-aware skips);
   `plan_weekly_meals` has offline unit coverage (mock-mode, parse+dish, fish→meat normalization, failure→None)

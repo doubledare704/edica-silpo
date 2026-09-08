@@ -390,6 +390,92 @@ class MCPProductService:
             "promo_codes": promo_codes,
         }
 
+    @classmethod
+    def _normalize_profile(cls, profile: Any) -> dict[str, Any]:
+        return {
+            "name": cls._product_value(profile, "name"),
+            "phone": cls._product_value(profile, "phone"),
+            "email": cls._product_value(profile, "email"),
+            "birth_date": cls._product_value(profile, "birth_date", "birthDate"),
+        }
+
+    @classmethod
+    def _normalize_profile_address(cls, address: Any) -> dict[str, Any]:
+        coordinates = cls._extract_coords(address)
+        return {
+            "address_id": str(cls._product_value(address, "address_id", "addressId", "id", default="")),
+            "label": cls._product_value(address, "label", "tag"),
+            "text": cls._product_value(address, "text", "address"),
+            "coordinates": {"latitude": coordinates[0], "longitude": coordinates[1]}
+            if coordinates is not None
+            else None,
+        }
+
+    @classmethod
+    def _normalize_branch(cls, branch: Any) -> dict[str, Any]:
+        coordinates = cls._extract_coords(branch)
+        return {
+            "branch_id": str(cls._product_value(branch, "branch_id", "branchId", default="")),
+            "name": str(cls._product_value(branch, "name", default="Сільпо")),
+            "city": cls._product_value(branch, "city"),
+            "address": cls._product_value(branch, "address"),
+            "display_address": cls._branch_display_address(branch),
+            "latitude": coordinates[0] if coordinates is not None else None,
+            "longitude": coordinates[1] if coordinates is not None else None,
+            "has_pickup": bool(cls._product_value(branch, "has_pickup", "hasPickup", default=False)),
+            "has_nova_poshta": bool(cls._product_value(branch, "has_nova_poshta", "hasNovaPoshta", default=False)),
+        }
+
+    @classmethod
+    def _normalize_delivery_type(cls, delivery_type: Any) -> dict[str, Any]:
+        raw_type = cls._product_value(delivery_type, "type", "delivery_type", "deliveryType", default="")
+        return {
+            "type": str(getattr(raw_type, "value", raw_type)),
+            "description": cls._product_value(delivery_type, "description"),
+            "branch_id": cls._product_value(delivery_type, "branch_id", "branchId"),
+            "min_order": cls._product_value(delivery_type, "min_order", "minOrder"),
+        }
+
+    async def get_profile_overview(self, delivery_address: str | None = None) -> dict[str, Any]:
+        """Loads the MCP profile and the delivery data used by profile preferences."""
+        client = SilpoClient.for_mock() if settings.MCP_MOCK_MODE else SilpoClient.for_real_server()
+        profile: dict[str, Any] = {"name": None, "phone": None, "email": None, "birth_date": None}
+        loyalty: dict[str, Any] = self._normalize_loyalty(None)
+        addresses: list[dict[str, Any]] = []
+        branches: list[dict[str, Any]] = []
+        delivery_types: list[dict[str, Any]] = []
+        try:
+            async with client:
+                profile = self._normalize_profile(await client.get_profile())
+                loyalty = self._normalize_loyalty(await client.get_loyalty_info())
+                addresses = [
+                    self._normalize_profile_address(entry)
+                    for entry in await client.get_delivery_addresses()
+                    if self._product_value(entry, "text", "address")
+                ]
+                branches = [self._normalize_branch(entry) for entry in await client.list_branches(limit=20)]
+
+                coordinates = self._extract_coords(addresses[0]) if addresses else None
+                if coordinates is None and delivery_address:
+                    coordinates = self._extract_coords(await client.find_address(delivery_address))
+                if coordinates is not None:
+                    delivery_types = [
+                        self._normalize_delivery_type(entry)
+                        for entry in await client.get_available_delivery_types(
+                            latitude=coordinates[0], longitude=coordinates[1]
+                        )
+                    ]
+        except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+            logger.warning("Silpo MCP profile lookup failed: %s", exc)
+
+        return {
+            "profile": profile,
+            "loyalty": loyalty,
+            "addresses": addresses,
+            "delivery_types": delivery_types,
+            "branches": branches,
+        }
+
     async def fetch_similar(self, slug: str, context: dict[str, str] | None) -> list[dict[str, Any]]:
         """Returns products similar to the given slug, empty on any failure."""
         if context is None:

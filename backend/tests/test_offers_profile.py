@@ -39,3 +39,5 @@ async def test_profile_overview_returns_mock_profile_and_addresses() -> None:
         assert payload["loyalty"]["bonus_balance"] == pytest.approx(125.5)
         assert len(payload["addresses"]) == 1
         assert payload["addresses"][0]["address_id"] == "addr-1"
+        assert payload["delivery_types"][0]["type"] == "DeliveryHome"
+        assert len(payload["branches"]) == 2

@@ -136,6 +136,13 @@ promotions, discounted in-stock products, personal promos, coupons, and promo co
 It resolves the same shopping context as the picker and keeps the local mock client
 available for development.
 
+The profile page uses `GET /api/profile` for MCP profile, loyalty, saved-address,
+delivery-type, and branch data. Editable delivery address, delivery preference, and
+preferred branch IDs are persisted in browser storage because the published MCP
+client currently exposes address reads but no address-write operation. Saving the
+profile address also updates the shared store selector, so the assistant receives
+the same address on its next request.
+
 `MCP_MOCK_MODE=true` uses local/mock behavior. With `MCP_MOCK_MODE=false`, `SilpoClient.for_real_server()` handles the live catalog and OAuth flow. Product normalization preserves `productId`, `companyId`, `branchId`, price, private-label status, and quantity. Cart creation clears a dirty cart before updating products and returns a share URL; failures use a fallback URL without losing the summary. When `get_cart` reports no active cart, `create_cart` resolves fulfillment (saved address → geocode → delivery type → time slot) and creates one via `silpo_create_shopping_cart`; without a saved or supplied address it keeps the fallback URL.
 
 ### TTS

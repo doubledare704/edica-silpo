@@ -54,7 +54,10 @@
 
 	function toggle() {
 		open = !open;
-		if (open) void loadSaved();
+		if (open) {
+			query = selectedStore.address;
+			void loadSaved();
+		}
 	}
 
 	async function search() {

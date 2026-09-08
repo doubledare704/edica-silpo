@@ -10,6 +10,7 @@
 	let isCartPage = $derived(page.url.pathname === '/cart');
 	let isAssistantPage = $derived(page.url.pathname === '/');
 	let isDiscountsPage = $derived(page.url.pathname === '/discounts');
+	let isProfilePage = $derived(page.url.pathname === '/profile');
 </script>
 
 <div class="min-h-screen bg-app-bg text-app-text antialiased flex flex-col pb-24">
@@ -113,13 +114,19 @@
 				</span>
 				<span class="text-[11px] {isDiscountsPage ? 'font-semibold' : 'font-medium'}">Знижки</span>
 			</a>
-			<button
-				type="button"
-				class="flex flex-col items-center justify-center gap-0.5 h-full text-[#6E6E73] hover:text-app-primary transition-colors focus:outline-none"
+			<a
+				href="/profile"
+				data-testid="nav-profile"
+				aria-current={isProfilePage ? 'page' : undefined}
+				class="flex flex-col items-center justify-center gap-0.5 h-full focus:outline-none {isProfilePage
+					? 'text-app-primary'
+					: 'text-[#6E6E73] hover:text-app-primary'} transition-colors"
 			>
-				<span class="material-symbols-outlined text-[22px]" aria-hidden="true">person</span>
-				<span class="text-[11px] font-medium">Профіль</span>
-			</button>
+				<span class="flex items-center justify-center px-3 py-1 rounded-full {isProfilePage ? 'bg-app-primary-soft' : ''}">
+					<span class="material-symbols-outlined text-[22px]" aria-hidden="true">person</span>
+				</span>
+				<span class="text-[11px] {isProfilePage ? 'font-semibold' : 'font-medium'}">Профіль</span>
+			</a>
 		</div>
 	</nav>
 </div>
