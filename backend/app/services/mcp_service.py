@@ -261,6 +261,135 @@ class MCPProductService:
             for i, entry in enumerate(items)
         ]
 
+    @classmethod
+    def _normalize_promotion(cls, promotion: Any) -> dict[str, Any]:
+        return {
+            "id": str(cls._product_value(promotion, "id", "code", default="")),
+            "title": str(cls._product_value(promotion, "title", default="Акція")),
+            "description": cls._product_value(promotion, "description"),
+            "discount_percent": cls._product_value(promotion, "discount_percent", "discountPercent"),
+            "price_from": cls._product_value(promotion, "price_from", "priceFrom"),
+            "price_to": cls._product_value(promotion, "price_to", "priceTo"),
+            "starts_at": cls._product_value(promotion, "starts_at", "startsAt"),
+            "ends_at": cls._product_value(promotion, "ends_at", "endsAt"),
+            "is_price_of_week": bool(cls._product_value(promotion, "is_price_of_week", "isPriceOfWeek", default=False)),
+            "image_url": cls._product_value(promotion, "image_url", "imageUrl"),
+        }
+
+    @classmethod
+    def _normalize_offer_product(cls, product: Any, index: int) -> dict[str, Any]:
+        normalized = cls._normalize_product(
+            product,
+            str(cls._product_value(product, "title", "name", default="Товар зі знижкою")),
+            1,
+            f"promo-{index}",
+        )
+        old_price = cls._product_value(product, "old_price", "oldPrice")
+        price = float(normalized["price"])
+        discount_percent = None
+        if old_price is not None:
+            try:
+                old_price_value = float(old_price)
+                if old_price_value > price:
+                    discount_percent = round((old_price_value - price) / old_price_value * 100, 1)
+            except (TypeError, ValueError):
+                old_price = None
+        normalized.update(
+            {
+                "old_price": old_price,
+                "discount_percent": discount_percent,
+                "is_promo": True,
+            }
+        )
+        return normalized
+
+    @classmethod
+    def _normalize_loyalty(cls, loyalty: Any) -> dict[str, Any]:
+        return {
+            "card_number": str(cls._product_value(loyalty, "card_number", "cardNumber", default="")),
+            "status": str(cls._product_value(loyalty, "status", default="")),
+            "bonus_balance": float(cls._product_value(loyalty, "bonus_balance", "bonusBalance", default=0.0) or 0.0),
+            "bonus_earned": float(cls._product_value(loyalty, "bonus_earned", "bonusEarned", default=0.0) or 0.0),
+        }
+
+    @classmethod
+    def _normalize_personal_promo(cls, promo: Any) -> dict[str, Any]:
+        return {
+            "id": str(cls._product_value(promo, "promo_id", "promoId", "id", default="")),
+            "title": str(cls._product_value(promo, "title", default="Персональна пропозиція")),
+            "description": cls._product_value(promo, "description"),
+            "expires_at": cls._product_value(promo, "expires_at", "expiresAt"),
+        }
+
+    @classmethod
+    def _normalize_coupon(cls, coupon: Any) -> dict[str, Any]:
+        return {
+            "id": str(cls._product_value(coupon, "coupon_id", "couponId", "id", default="")),
+            "title": str(cls._product_value(coupon, "title", default="Купон")),
+            "discount": float(cls._product_value(coupon, "discount", default=0.0) or 0.0),
+            "expires_at": cls._product_value(coupon, "expires_at", "expiresAt"),
+            "barcode": cls._product_value(coupon, "barcode"),
+        }
+
+    @classmethod
+    def _normalize_promo_code(cls, promo_code: Any) -> dict[str, Any]:
+        return {
+            "code": str(cls._product_value(promo_code, "code", default="")),
+            "description": cls._product_value(promo_code, "description"),
+            "expires_at": cls._product_value(promo_code, "expires_at", "expiresAt"),
+        }
+
+    async def get_offers_overview(self, delivery_address: str | None = None) -> dict[str, Any]:
+        """Loads loyalty, branch promotions, and personal offers from Silpo MCP."""
+        context = await self.resolve_shopping_context(delivery_address)
+        client = SilpoClient.for_mock() if settings.MCP_MOCK_MODE else SilpoClient.for_real_server()
+        promotions: list[dict[str, Any]] = []
+        promo_products: list[dict[str, Any]] = []
+        loyalty: dict[str, Any] = self._normalize_loyalty(None)
+        personal_promos: list[dict[str, Any]] = []
+        coupons: list[dict[str, Any]] = []
+        promo_codes: list[dict[str, Any]] = []
+        try:
+            async with client:
+                loyalty = self._normalize_loyalty(await client.get_loyalty_info())
+                personal_promos = [self._normalize_personal_promo(entry) for entry in await client.get_promos()]
+                coupons = [self._normalize_coupon(entry) for entry in await client.get_coupons()]
+                promo_codes = [self._normalize_promo_code(entry) for entry in await client.get_promo_codes()]
+                if context is not None:
+                    promotions = [
+                        self._normalize_promotion(entry)
+                        for entry in await client.get_promotions(
+                            context["branch_id"],
+                            context["delivery_type"],
+                            context["timeslot_start"],
+                            context["timeslot_end"],
+                        )
+                    ]
+                    result = await client.get_products(
+                        context["branch_id"],
+                        context["delivery_type"],
+                        context["timeslot_start"],
+                        context["timeslot_end"],
+                        must_have_promotion=True,
+                        in_stock=True,
+                        limit=12,
+                    )
+                    promo_products = [
+                        self._normalize_offer_product(entry, index)
+                        for index, entry in enumerate(self._product_value(result, "items", default=[]) or [])
+                    ]
+        except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+            logger.warning("Silpo MCP offers lookup failed: %s", exc)
+
+        return {
+            "loyalty": loyalty,
+            "promotions": promotions,
+            "promo_products": promo_products,
+            "personal_promos": personal_promos,
+            "coupons": coupons,
+            "promo_codes": promo_codes,
+        }
+
     async def fetch_similar(self, slug: str, context: dict[str, str] | None) -> list[dict[str, Any]]:
         """Returns products similar to the given slug, empty on any failure."""
         if context is None:

@@ -131,6 +131,11 @@ and return its URL instead of a mock fallback link.
 `cart_url` is the checkout web link when available. Bonus flow is ask-don't-apply:
 `loyalty_hint` surfaces `bonusAvailable`; applying stays a future explicit user action.
 
+The offers page uses `GET /api/offers` to read the MCP loyalty card, active branch
+promotions, discounted in-stock products, personal promos, coupons, and promo codes.
+It resolves the same shopping context as the picker and keeps the local mock client
+available for development.
+
 `MCP_MOCK_MODE=true` uses local/mock behavior. With `MCP_MOCK_MODE=false`, `SilpoClient.for_real_server()` handles the live catalog and OAuth flow. Product normalization preserves `productId`, `companyId`, `branchId`, price, private-label status, and quantity. Cart creation clears a dirty cart before updating products and returns a share URL; failures use a fallback URL without losing the summary. When `get_cart` reports no active cart, `create_cart` resolves fulfillment (saved address → geocode → delivery type → time slot) and creates one via `silpo_create_shopping_cart`; without a saved or supplied address it keeps the fallback URL.
 
 ### TTS

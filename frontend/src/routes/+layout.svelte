@@ -8,7 +8,8 @@
 
 	let cartCount = $derived(cartStore.items.reduce((sum, item) => sum + item.quantity, 0));
 	let isCartPage = $derived(page.url.pathname === '/cart');
-	let isAssistantPage = $derived(!isCartPage);
+	let isAssistantPage = $derived(page.url.pathname === '/');
+	let isDiscountsPage = $derived(page.url.pathname === '/discounts');
 </script>
 
 <div class="min-h-screen bg-app-bg text-app-text antialiased flex flex-col pb-24">
@@ -99,13 +100,19 @@
 					<span class="text-[11px] font-medium">Кошик</span>
 				</span>
 			{/if}
-			<button
-				type="button"
-				class="flex flex-col items-center justify-center gap-0.5 h-full text-[#6E6E73] hover:text-app-primary transition-colors focus:outline-none"
+			<a
+				href="/discounts"
+				data-testid="nav-discounts"
+				aria-current={isDiscountsPage ? 'page' : undefined}
+				class="flex flex-col items-center justify-center gap-0.5 h-full focus:outline-none {isDiscountsPage
+					? 'text-app-primary'
+					: 'text-[#6E6E73] hover:text-app-primary'} transition-colors"
 			>
-				<span class="material-symbols-outlined text-[22px]" aria-hidden="true">sell</span>
-				<span class="text-[11px] font-medium">Знижки</span>
-			</button>
+				<span class="flex items-center justify-center px-3 py-1 rounded-full {isDiscountsPage ? 'bg-app-primary-soft' : ''}">
+					<span class="material-symbols-outlined text-[22px]" aria-hidden="true">sell</span>
+				</span>
+				<span class="text-[11px] {isDiscountsPage ? 'font-semibold' : 'font-medium'}">Знижки</span>
+			</a>
 			<button
 				type="button"
 				class="flex flex-col items-center justify-center gap-0.5 h-full text-[#6E6E73] hover:text-app-primary transition-colors focus:outline-none"

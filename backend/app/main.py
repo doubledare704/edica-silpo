@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .api import agent, stores
+from .api import agent, offers, stores
 from .config import settings
 from .logging_config import configure_logging
 
@@ -30,4 +30,5 @@ if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 app.include_router(stores.router)
+app.include_router(offers.router)
 app.include_router(agent.router)
