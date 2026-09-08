@@ -31,10 +31,16 @@
 		branch_id: string;
 		name: string;
 		display_address: string;
+		distance_km?: number;
 		latitude: number | null;
 		longitude: number | null;
 		has_pickup: boolean;
 		has_nova_poshta: boolean;
+	}
+
+	interface Coordinates {
+		latitude: number;
+		longitude: number;
 	}
 
 	interface ProfileOverview {
@@ -53,6 +59,8 @@
 	let error = $state<string | null>(null);
 	let saved = $state(false);
 	let searchingBranches = $state(false);
+	let locationMessage = $state<string | null>(null);
+	const MAX_BRANCH_RADIUS_KM = 15;
 
 	function formatPrice(value: number): string {
 		return new Intl.NumberFormat('uk-UA', {
@@ -60,6 +68,58 @@
 			currency: 'UAH',
 			maximumFractionDigits: 0,
 		}).format(value);
+	}
+
+	function deliveryTypeLabel(option: DeliveryType): string {
+		const labels: Record<string, string> = {
+			DeliveryHome: 'Регулярна доставка (продукти та свіжі товари)',
+			WideAssortDelivery: 'Доставка широкого асортименту (розширений асортимент товарів)',
+			B2B: 'Доставка для бізнесу (замовлення для бізнесу)',
+			NovaPoshta: 'Доставка Новою поштою (відправлення через Нову пошту)',
+			SelfPickup: 'Самовивіз із магазину Сільпо',
+		};
+		return labels[option.type] || option.description || option.type;
+	}
+
+	function distanceBetweenCoordinates(first: Coordinates, second: Coordinates): number {
+		const earthRadiusKm = 6371;
+		const latitudeDelta = ((second.latitude - first.latitude) * Math.PI) / 180;
+		const longitudeDelta = ((second.longitude - first.longitude) * Math.PI) / 180;
+		const firstLatitude = (first.latitude * Math.PI) / 180;
+		const secondLatitude = (second.latitude * Math.PI) / 180;
+		const haversine =
+			Math.sin(latitudeDelta / 2) ** 2 +
+			Math.cos(firstLatitude) * Math.cos(secondLatitude) * Math.sin(longitudeDelta / 2) ** 2;
+		return earthRadiusKm * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+	}
+
+	function filterBranchesByRadius(branches: Branch[], origin: Coordinates): Branch[] {
+		return branches.filter(
+			(branch) =>
+				branch.latitude !== null &&
+				branch.longitude !== null &&
+				distanceBetweenCoordinates(origin, { latitude: branch.latitude, longitude: branch.longitude }) <= MAX_BRANCH_RADIUS_KM,
+		);
+	}
+
+	function requestBrowserLocation(): void {
+		if (typeof navigator === 'undefined' || !navigator.geolocation) {
+			locationMessage = 'Вкажіть адресу доставки, щоб побачити магазини в радіусі 15 км.';
+			return;
+		}
+		navigator.geolocation.getCurrentPosition(
+			(position) => {
+				if (overview) {
+					overview.branches = filterBranchesByRadius(overview.branches, {
+						latitude: position.coords.latitude,
+						longitude: position.coords.longitude,
+					});
+				}
+			},
+			() => {
+				locationMessage = 'Дозвольте доступ до геолокації або вкажіть адресу доставки, щоб побачити магазини поруч.';
+			},
+		);
 	}
 
 	function selectSavedAddress(savedAddress: Address): void {
@@ -102,6 +162,16 @@
 			address = profilePreferences.address || mcpAddress || selectedStore.address;
 			deliveryType = profilePreferences.deliveryType || overview.delivery_types[0]?.type || 'DeliveryHome';
 			preferredBranchIds = [...profilePreferences.preferredBranchIds];
+			if (profilePreferences.address || overview.addresses.length > 0) {
+				try {
+					const nearbyBranches = await fetchBranchesNearAddress(address);
+					if (nearbyBranches) overview.branches = nearbyBranches;
+				} catch {
+					locationMessage = 'Не вдалося визначити магазини поруч із цією адресою.';
+				}
+			} else {
+				requestBrowserLocation();
+			}
 		} catch {
 			error = 'Не вдалося завантажити профіль. Перевірте з’єднання.';
 		} finally {
@@ -109,17 +179,27 @@
 		}
 	}
 
+	async function fetchBranchesNearAddress(query: string): Promise<Branch[] | null> {
+		const response = await fetch(
+			`${getBackendUrl()}/api/stores/nearest?address=${encodeURIComponent(query)}&limit=10`,
+		);
+		if (!response.ok) throw new Error(`HTTP ${response.status}`);
+		const data = (await response.json()) as { stores?: Branch[] };
+		if (!Array.isArray(data.stores)) return null;
+		return data.stores.filter(
+			(branch) => branch.distance_km === undefined || branch.distance_km <= MAX_BRANCH_RADIUS_KM,
+		);
+	}
+
 	async function searchBranches(): Promise<void> {
 		const query = address.trim();
 		if (!query || searchingBranches) return;
 		searchingBranches = true;
 		try {
-			const response = await fetch(
-				`${getBackendUrl()}/api/stores/nearest?address=${encodeURIComponent(query)}&limit=10`,
-			);
-			if (!response.ok) throw new Error(`HTTP ${response.status}`);
-			const data = (await response.json()) as { stores?: Branch[] };
-			if (overview) overview.branches = data.stores ?? [];
+			const nearbyBranches = await fetchBranchesNearAddress(query);
+			if (overview) {
+				overview.branches = nearbyBranches ?? [];
+			}
 		} catch {
 			error = 'Не вдалося оновити список магазинів поруч.';
 		} finally {
@@ -258,7 +338,7 @@
 							<label class="flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-3 transition-colors {deliveryType === option.type ? 'border-app-primary bg-[#fff8f1]' : 'border-app-border hover:border-app-primary/50'}">
 								<input type="radio" bind:group={deliveryType} value={option.type} class="mt-1 accent-[#ff6b00]" />
 								<span>
-									<span class="block text-sm font-semibold">{option.description || option.type}</span>
+									<span class="block text-sm font-semibold">{deliveryTypeLabel(option)}</span>
 									{#if option.min_order !== null}<span class="block mt-1 text-xs text-[#6e6e73]">Від {formatPrice(option.min_order)}</span>{/if}
 								</span>
 							</label>
@@ -277,6 +357,7 @@
 					<p class="text-sm text-[#6e6e73]">Асортимент поруч</p>
 					<h2 class="text-2xl font-semibold">Улюблені магазини</h2>
 					<p class="mt-1 text-sm text-[#6e6e73]">Виберіть кілька — асистент зможе врахувати їх для замін.</p>
+					{#if locationMessage}<p class="mt-2 text-sm text-[#a45a00]">{locationMessage}</p>{/if}
 				</div>
 				<div class="relative h-48 overflow-hidden rounded-2xl border border-[#eadfd5] bg-[#fff8f1]" data-testid="branches-map" aria-label="Карта магазинів Сільпо">
 					<div class="absolute inset-0 opacity-40" style="background-image: linear-gradient(#e8cdb8 1px, transparent 1px), linear-gradient(90deg, #e8cdb8 1px, transparent 1px); background-size: 32px 32px;"></div>
