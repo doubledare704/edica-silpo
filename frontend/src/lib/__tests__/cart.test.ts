@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { itemEmoji, itemsCountLabel, normalizeCartItems, normalizeMealPlan } from '../cart';
+import {
+	itemEmoji,
+	itemsCountLabel,
+	normalizeCartItems,
+	normalizeMealPlan,
+	normalizeUnfulfilled,
+} from '../cart';
 
 describe('cart helpers', () => {
 	it('maps known product titles to emoji', () => {
@@ -41,5 +47,11 @@ describe('cart helpers', () => {
 	it('maps missing meal plan payloads to null', () => {
 		expect(normalizeMealPlan(null)).toBeNull();
 		expect(normalizeMealPlan({})).toBeNull();
+	});
+
+	it('normalizes unfulfilled requests into trimmed strings', () => {
+		expect(normalizeUnfulfilled(['Вино вишукане', '  ', '', null, 42])).toEqual(['Вино вишукане']);
+		expect(normalizeUnfulfilled(null)).toEqual([]);
+		expect(normalizeUnfulfilled('oops')).toEqual([]);
 	});
 });

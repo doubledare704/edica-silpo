@@ -12,7 +12,8 @@
 	 */
 
 	import { getBackendUrl } from '$lib/config';
-	import { normalizeCartItems, normalizeMealPlan, type CartItem, type MealPlan } from '$lib/cart';
+	import { normalizeCartItems, normalizeMealPlan, normalizeUnfulfilled } from '$lib/cart';
+	import type { CartItem, MealPlan } from '$lib/cart';
 	import { tick } from 'svelte';
 
 	interface StreamRequest {
@@ -34,6 +35,8 @@
 		audioUrl: string | null;
 		totalPrice: number;
 		isBudgetExceeded: boolean;
+		budget: number | null;
+		unfulfilled: string[];
 		items: CartItem[];
 		mealPlan: MealPlan | null;
 	}
@@ -55,6 +58,13 @@
 	function resolveAudioUrl(url: string | null): string | null {
 		if (!url) return null;
 		return /^https?:\/\//.test(url) ? url : `${getBackendUrl()}${url}`;
+	}
+
+	function resolveBudget(data: Record<string, unknown>): number | null {
+		const total = Number(data['total_price'] ?? 0);
+		const remaining = Number(data['remaining_budget'] ?? 0);
+		const planned = total + remaining;
+		return planned > 0 ? planned : null;
 	}
 
 	const NODE_LABELS: Record<string, string> = {
@@ -148,18 +158,20 @@
 				addEvent('tool_end', `✅ Інструмент завершено: ${data['tool']}`);
 				break;
 
-			case 'node_complete':
-				addEvent('node_complete', '🏁 Готово!');
+		case 'node_complete':
+			addEvent('node_complete', '🏁 Готово!');
 			oncomplete({
 				cartUrl: (data['cart_url'] as string | null) ?? null,
 				summary: String(data['summary'] ?? ''),
 				audioUrl: resolveAudioUrl((data['audio_url'] as string | null) ?? null),
 				totalPrice: Number(data['total_price'] ?? 0),
 				isBudgetExceeded: Boolean(data['is_budget_exceeded']),
+				budget: resolveBudget(data),
+				unfulfilled: normalizeUnfulfilled(data['unfulfilled_requests']),
 				items: normalizeCartItems(data['items']),
 				mealPlan: normalizeMealPlan(data['meal_plan']),
 			});
-				break;
+			break;
 		}
 	}
 

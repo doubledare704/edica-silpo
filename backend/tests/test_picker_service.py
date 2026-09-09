@@ -487,6 +487,23 @@ def test_is_relevant_accepts_chicken_synonym() -> None:
     assert relevant is True
 
 
+def test_is_relevant_accepts_tomato_synonym() -> None:
+    relevant, _ = is_relevant("помідори", "Томат")
+    assert relevant is True
+    relevant, _ = is_relevant("Томати свіжі", "Помідор червоний")
+    assert relevant is True
+
+
+def test_is_relevant_accepts_short_stem_plural() -> None:
+    relevant, _ = is_relevant("Сири крафтові", "Сир ЛТ Мукко Бринза з пажитником 36,2%")
+    assert relevant is True
+
+
+def test_is_relevant_short_tokens_still_need_prefix_or_match() -> None:
+    relevant, _ = is_relevant("Рис", "Риба свіжа")
+    assert relevant is False
+
+
 @pytest.mark.asyncio
 async def test_picker_rejects_toothbrush_for_charcoal_query() -> None:
     service = PickerService(product_service=FakeProductService(_mismatch_catalog()))

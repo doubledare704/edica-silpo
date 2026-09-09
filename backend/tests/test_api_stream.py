@@ -55,6 +55,8 @@ async def test_agent_stream_sse_endpoint() -> None:
             assert "cart_url" in last_data
             assert "summary" in last_data
             assert "audio_url" in last_data
+            assert "unfulfilled_requests" in last_data
+            assert isinstance(last_data["unfulfilled_requests"], list)
             assert last_data["cart_url"].startswith("https://silpo.ua/cart")
             assert last_data["audio_url"] is None
 

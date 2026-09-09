@@ -63,6 +63,13 @@ export function normalizeCartItems(raw: unknown): CartItem[] {
 		.filter((item) => item.title.length > 0);
 }
 
+export function normalizeUnfulfilled(raw: unknown): string[] {
+	if (!Array.isArray(raw)) return [];
+	return raw
+		.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+		.map((entry) => entry.trim());
+}
+
 export function itemKey(item: CartItem, index: number): string {
 	const id = item.id ?? item.title;
 	return `${id}#${index}`;

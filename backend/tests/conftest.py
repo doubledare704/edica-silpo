@@ -14,6 +14,8 @@ def isolate_example_env(monkeypatch):
         "GEMINI_API_KEY",
         "GEMINI_MOCK_MODE",
         "GEMINI_MODEL",
+        "GEMINI_MODEL_FALLBACKS",
+        "GEMINI_MODEL_FALLBACKS_PLAIN",
         "GEMINI_TTS_MODEL",
         "TTS_PROVIDER",
         "TTS_ENABLED",

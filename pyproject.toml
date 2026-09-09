@@ -25,6 +25,9 @@ asyncio_mode = "auto"
 line-length = 120
 target-version = "py312"
 
+[tool.ruff.lint]
+extend-select = ["PLW0603"]
+
 [tool.pyrefly]
 project-includes = [
     "backend/app/**/*.py*",

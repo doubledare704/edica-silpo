@@ -94,6 +94,21 @@ describe('CartCard', () => {
 		expect(screen.getByText('2.45k')).toBeInTheDocument();
 	});
 
+	it('fills the budget ring proportionally to total vs budget', () => {
+		render(CartCard, { ...baseProps, totalPrice: 1602.61, budget: 3000 });
+		expect(screen.getByTestId('budget-ring')).toHaveAttribute('stroke-dasharray', '53.42, 100');
+	});
+
+	it('fills the whole ring when the budget is unknown', () => {
+		render(CartCard, { ...baseProps, budget: null });
+		expect(screen.getByTestId('budget-ring')).toHaveAttribute('stroke-dasharray', '100, 100');
+	});
+
+	it('clamps the ring when the total exceeds the budget', () => {
+		render(CartCard, { ...baseProps, totalPrice: 3500, budget: 3000, isBudgetExceeded: true });
+		expect(screen.getByTestId('budget-ring')).toHaveAttribute('stroke-dasharray', '100, 100');
+	});
+
 	it('renders the quick preview of picked items', () => {
 		render(CartCard, baseProps);
 		expect(screen.getByTestId('cart-items-preview')).toBeInTheDocument();

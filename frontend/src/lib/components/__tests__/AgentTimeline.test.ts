@@ -239,6 +239,53 @@ describe('AgentTimeline', () => {
 		);
 	});
 
+	it('forwards the planned budget derived from total and remaining', async () => {
+		const oncomplete = vi.fn();
+		mockFetchWithSse([
+			{
+				event: 'node_complete',
+				data: { ...COMPLETE_EVENT.data, total_price: 1600, remaining_budget: 1400 },
+			},
+		]);
+
+		render(AgentTimeline, { request: REQUEST, oncomplete });
+
+		await waitFor(() => expect(oncomplete).toHaveBeenCalled());
+		expect(oncomplete).toHaveBeenCalledWith(expect.objectContaining({ budget: 3000 }));
+	});
+
+	it('forwards null budget when no budget was set', async () => {
+		const oncomplete = vi.fn();
+		mockFetchWithSse([
+			{
+				event: 'node_complete',
+				data: { ...COMPLETE_EVENT.data, total_price: 0, remaining_budget: 0 },
+			},
+		]);
+
+		render(AgentTimeline, { request: REQUEST, oncomplete });
+
+		await waitFor(() => expect(oncomplete).toHaveBeenCalled());
+		expect(oncomplete).toHaveBeenCalledWith(expect.objectContaining({ budget: null }));
+	});
+
+	it('forwards unfulfilled requests from node_complete', async () => {
+		const oncomplete = vi.fn();
+		mockFetchWithSse([
+			{
+				event: 'node_complete',
+				data: { ...COMPLETE_EVENT.data, unfulfilled_requests: ['Вино вишукане', 'Сири крафтові'] },
+			},
+		]);
+
+		render(AgentTimeline, { request: REQUEST, oncomplete });
+
+		await waitFor(() => expect(oncomplete).toHaveBeenCalled());
+		expect(oncomplete).toHaveBeenCalledWith(
+			expect.objectContaining({ unfulfilled: ['Вино вишукане', 'Сири крафтові'] }),
+		);
+	});
+
 	it('caps the thought list at one-third viewport height with scrolling', async () => {
 		const oncomplete = vi.fn();
 		mockFetchWithSse([

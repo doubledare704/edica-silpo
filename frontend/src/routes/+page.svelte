@@ -3,6 +3,7 @@
 	import QueryInProgress from '$lib/components/QueryInProgress.svelte';
 	import AgentTimeline from '$lib/components/AgentTimeline.svelte';
 	import CartCard from '$lib/components/CartCard.svelte';
+	import EmptyCart from '$lib/components/EmptyCart.svelte';
 	import SuccessBanner from '$lib/components/SuccessBanner.svelte';
 	import { selectedStore } from '$lib/selectedStore.svelte';
 	import { setCart, clearCart } from '$lib/cartStore.svelte';
@@ -14,6 +15,8 @@
 		audioUrl: string | null;
 		totalPrice: number;
 		isBudgetExceeded: boolean;
+		budget: number | null;
+		unfulfilled: string[];
 		items: CartItem[];
 		mealPlan: MealPlan | null;
 	}
@@ -35,6 +38,10 @@
 	let currentRequest: StreamRequest | null = $state(null);
 	let cartPayload: CartPayload | null = $state(null);
 	let isThinking = $state(false);
+	let isEmptyCart = $derived.by(() => {
+		if (!cartPayload) return false;
+		return cartPayload.items.length === 0 && cartPayload.totalPrice <= 0;
+	});
 
 	function handleSubmit(data: { userText: string; audioBase64: string }) {
 		if (isThinking) return;
@@ -71,16 +78,26 @@
 
 <main class="flex-1 max-w-[1280px] mx-auto w-full px-4 md:px-10 py-6 flex flex-col gap-4">
 	{#if cartPayload}
-		<SuccessBanner onnew={handleNewRequest} />
-		<CartCard
-			cartUrl={cartPayload.cartUrl}
-			summary={cartPayload.summary}
-			audioUrl={cartPayload.audioUrl}
-			totalPrice={cartPayload.totalPrice}
-			isBudgetExceeded={cartPayload.isBudgetExceeded}
-			items={cartPayload.items}
-			mealPlan={cartPayload.mealPlan}
-		/>
+		{#if isEmptyCart}
+			<EmptyCart
+				summary={cartPayload.summary}
+				audioUrl={cartPayload.audioUrl}
+				unfulfilled={cartPayload.unfulfilled}
+				onnew={handleNewRequest}
+			/>
+		{:else}
+			<SuccessBanner onnew={handleNewRequest} />
+			<CartCard
+				cartUrl={cartPayload.cartUrl}
+				summary={cartPayload.summary}
+				audioUrl={cartPayload.audioUrl}
+				totalPrice={cartPayload.totalPrice}
+				isBudgetExceeded={cartPayload.isBudgetExceeded}
+				budget={cartPayload.budget}
+				items={cartPayload.items}
+				mealPlan={cartPayload.mealPlan}
+			/>
+		{/if}
 	{:else}
 		<div class="grid grid-cols-1 md:grid-cols-12 gap-4">
 			<section

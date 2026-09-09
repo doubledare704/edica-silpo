@@ -6,10 +6,11 @@
 	 *   cartUrl      — Silpo cart share URL (or null if unavailable)
 	 *   summary      — Ukrainian text summary from the agent
 	 *   audioUrl     — path to TTS audio of the agent reply (or null)
-	 *   totalPrice   — total cart price in UAH
-	 *   isBudgetExceeded — whether the cart exceeded the requested budget
-	 *   items        — picked products for the quick-preview list
-	 */
+ *   totalPrice   — total cart price in UAH
+ *   isBudgetExceeded — whether the cart exceeded the requested budget
++ *   budget       — requested budget in UAH (null when unset; ring stays full)
+ *   items        — picked products for the quick-preview list
+ */
 
 	import CartItemsPreview from '$lib/components/CartItemsPreview.svelte';
 	import type { CartItem, MealPlan } from '$lib/cart';
@@ -20,6 +21,7 @@
 		audioUrl: string | null;
 		totalPrice: number;
 		isBudgetExceeded: boolean;
+		budget?: number | null;
 		items?: CartItem[];
 		mealPlan?: MealPlan | null;
 	}
@@ -30,6 +32,7 @@
 		audioUrl,
 		totalPrice,
 		isBudgetExceeded,
+		budget = null,
 		items = [],
 		mealPlan = null,
 	}: Props = $props();
@@ -40,6 +43,12 @@
 		if (value >= 1000) return `${(value / 1000).toFixed(2)}k`;
 		return value.toFixed(0);
 	}
+
+	let budgetFill = $derived.by(() => {
+		if (!budget || budget <= 0) return '100';
+		const pct = Math.min(100, Math.max(0, (totalPrice / budget) * 100));
+		return Number.isInteger(pct) ? String(pct) : pct.toFixed(2);
+	});
 
 	async function playAudio() {
 		if (!audioElement) return;
@@ -73,10 +82,11 @@
 						stroke-width="3"
 					></path>
 					<path
+						data-testid="budget-ring"
 						class="text-app-primary stroke-current"
 						d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
 						fill="none"
-						stroke-dasharray="100, 100"
+						stroke-dasharray="{budgetFill}, 100"
 						stroke-linecap="round"
 						stroke-width="3"
 					></path>

@@ -20,6 +20,65 @@ logger = logging.getLogger(__name__)
 #: Sentinel returned by choose_picker_candidate when the advisor vetoes every candidate.
 ADVISOR_VETO = -1
 
+#: Substrings marking a Gemini failure as worth failing over to the next model.
+#: 429 = per-minute/daily quota spent, 503/504 = transient overload. Anything
+#: else (400/401/403, bad payload or key) fails fast without touching fallbacks.
+_RETRYABLE_MARKERS = (
+    "429",
+    "resource_exhausted",
+    "rate_limit",
+    "quota",
+    "too_many_requests",
+    "503",
+    "unavailable",
+    "service_unavailable",
+    "504",
+    "deadline_exceeded",
+)
+
+
+def parse_model_list(raw: str) -> list[str]:
+    """Splits a comma-separated model list, trimming and deduping in order."""
+    seen: set[str] = set()
+    models: list[str] = []
+    for part in raw.split(","):
+        name = part.strip()
+        if name and name not in seen:
+            seen.add(name)
+            models.append(name)
+    return models
+
+
+def _dedup_models(models: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for name in models:
+        cleaned = name.strip()
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            unique.append(cleaned)
+    return unique
+
+
+def get_flash_models() -> list[str]:
+    """Primary plus Flash-Lite fallbacks for audio/structured/grounded calls."""
+    return _dedup_models([settings.GEMINI_MODEL, *parse_model_list(settings.GEMINI_MODEL_FALLBACKS)])
+
+
+def get_plain_models() -> list[str]:
+    """Flash chain plus plain-text fallbacks (e.g. Gemma) for bare-JSON calls."""
+    return _dedup_models([*get_flash_models(), *parse_model_list(settings.GEMINI_MODEL_FALLBACKS_PLAIN)])
+
+
+def _is_retryable_error(exc: Exception) -> bool:
+    """True when the next model in the chain deserves a try (quota/overload).
+
+    A dead model code (`model_not_found`) also fails over: per the API docs
+    the client should fall back to a different model in that case.
+    """
+    haystack = f"{type(exc).__name__} {exc}".lower()
+    return "model_not_found" in haystack or any(marker in haystack for marker in _RETRYABLE_MARKERS)
+
 
 def get_genai_client() -> genai.Client:
     """Create a Gemini client for the current operation."""
@@ -36,14 +95,39 @@ async def _agenerate(
     model: str,
     contents: list[Any],
     config: types.GenerateContentConfig,
+    models: list[str] | None = None,
 ) -> types.GenerateContentResponse:
-    """Pure-async Gemini call via client.aio. No sync fallback (decision #2)."""
+    """Pure-async Gemini call via client.aio. No sync fallback (decision #2).
+
+    Ordered failover: tries `models` in order (default `[model]`), moving to
+    the next model only on retryable quota/overload errors. Non-retryable
+    errors raise immediately; exhausted chains raise the last error so
+    callers keep their deterministic fallbacks.
+    """
+    chain = _dedup_models(models) if models else [model]
+    if not chain:
+        chain = [model]
     client = get_genai_client()
-    return await client.aio.models.generate_content(
-        model=model,
-        contents=contents,
-        config=config,
-    )
+    last_exc: Exception | None = None
+    for attempt, candidate in enumerate(chain):
+        try:
+            return await client.aio.models.generate_content(
+                model=candidate,
+                contents=contents,
+                config=config,
+            )
+        except Exception as exc:
+            last_exc = exc
+            if _is_retryable_error(exc) and attempt < len(chain) - 1:
+                logger.warning(
+                    "Gemini model %s exhausted (%s), failing over to %s",
+                    candidate,
+                    exc,
+                    chain[attempt + 1],
+                )
+                continue
+            raise
+    raise last_exc if last_exc is not None else RuntimeError("Gemini model chain is empty")
 
 
 def _extract_json_object(raw: str) -> str:
@@ -83,6 +167,7 @@ async def transcribe_audio(audio_bytes: bytes, mime: str = "audio/webm") -> str:
         # Pure async via client.aio per https://googleapis.github.io/python-genai/
         response = await _agenerate(
             model=settings.GEMINI_MODEL,
+            models=get_flash_models(),
             contents=contents,
             config=types.GenerateContentConfig(
                 temperature=0.0,
@@ -123,11 +208,13 @@ async def choose_picker_candidate(
             "Ти асистент Silpo Smart Shopper. " + request_line + "Ціль: " + goal + ". "
             f"Залишок бюджету: {remaining:.2f} грн. Обери один індекс зі списку, "
             "який найкраще відповідає запиту та цілі. "
+            "Ціна НЕ є критерієм вибору: не відхиляй кандидатів через низьку ціну, бюджет контролюється окремо. "
             'Відповідай JSON строго {"index": N} або {"reject": true}, якщо жоден кандидат не підходить.\n'
             + "\n".join(lines)
         )
         response = await _agenerate(
             model=settings.GEMINI_MODEL,
+            models=get_plain_models(),
             contents=[prompt],
             config=types.GenerateContentConfig(
                 temperature=0.1,
@@ -202,6 +289,7 @@ async def formulate_picker_queries(
         )
         response = await _agenerate(
             model=settings.GEMINI_MODEL,
+            models=get_plain_models(),
             contents=[prompt],
             config=types.GenerateContentConfig(
                 temperature=0.1,
@@ -242,6 +330,7 @@ async def research_menu(goal: str) -> list[dict[str, Any]] | None:
         )
         response = await _agenerate(
             model=settings.GEMINI_MODEL,
+            models=get_flash_models(),
             contents=[prompt],
             config=types.GenerateContentConfig(
                 temperature=0.2,
@@ -279,6 +368,7 @@ async def plan_weekly_meals(goal: str) -> list[dict[str, Any]] | None:
     try:
         response = await _agenerate(
             model=settings.GEMINI_MODEL,
+            models=get_plain_models(),
             contents=[_GEMINI_WEEKLY_MEAL_PROMPT + " Ціль: " + goal],
             config=types.GenerateContentConfig(
                 temperature=0.2,
@@ -329,11 +419,13 @@ async def judge_picker_candidate(
             "(риба та морепродукти, алкоголь при безалкогольній цілі, засоби гігієни "
             "для продуктового кошика), і порушення уточнень (мариновані замість свіжих, "
             "алкогольні замість безалкогольних, багаторазові термочашки замість одноразових). "
+            "Ціна кандидата НЕ є критерієм відповідності: не відхиляй дешевший товар — бюджет контролюється окремо. "
             'Відповідай JSON строго {"verdict": "accept"|"reject", "reason": "...", '
             '"suggested_query": "..."|null}.'
         )
         response = await _agenerate(
             model=settings.GEMINI_MODEL,
+            models=get_plain_models(),
             contents=[prompt],
             config=types.GenerateContentConfig(
                 temperature=0.1,
@@ -392,6 +484,7 @@ async def parse_intent_multimodal(
         )
         response = await _agenerate(
             model=settings.GEMINI_MODEL,
+            models=get_flash_models(),
             contents=contents,
             config=types.GenerateContentConfig(
                 temperature=0.1,

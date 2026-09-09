@@ -162,7 +162,7 @@ Audio failures never prevent `summary_message` from returning. Speech text is Uk
 - `session_info`: thread ID
 - `thinking_step`: actual graph node and status
 - `tool_start` / `tool_end`: MCP activity (legacy `mcp_fetch` plus one pair per `picker_trace` entry)
-- `node_complete`: final intent, totals, cart URL, summary, and audio URL (plus `remaining_budget`, `is_requirements_met`, `checkout_url`, `loyalty_hint`, `cart_validations`, `meal_plan` with 7-day `days` for weekly budget queries, `None` otherwise)
+- `node_complete`: final intent, totals, cart URL, summary, and audio URL (plus `remaining_budget`, `is_requirements_met`, `unfulfilled_requests`, `checkout_url`, `loyalty_hint`, `cart_validations`, `meal_plan` with 7-day `days` for weekly budget queries, `None` otherwise)
 
 The endpoint accepts text or base64 audio/WebM input and preserves the existing frontend event names.
 

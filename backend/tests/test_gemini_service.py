@@ -149,6 +149,59 @@ async def test_choose_picker_candidate_reject_veto(monkeypatch) -> None:
         assert await choose_picker_candidate(candidates, 500.0, "chicken goal", "Курка для гриля") == ADVISOR_VETO
 
 
+@pytest.mark.asyncio
+async def test_choose_picker_candidate_prompt_ignores_price(monkeypatch) -> None:
+    import app.services.gemini_service as svc
+
+    monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
+    monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
+
+    mock_response = MagicMock()
+    mock_response.text = '{"index": 0}'
+
+    mock_client = MagicMock()
+    mock_client.aio = MagicMock()
+    mock_client.aio.models = MagicMock()
+    mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+    with patch("app.services.gemini_service.get_genai_client", return_value=mock_client):
+        from app.services.gemini_service import choose_picker_candidate
+
+        candidates = [{"title": "Вино Mirra Alentejo Tinto", "price": 668.0, "quantity": 1}]
+        assert await choose_picker_candidate(candidates, 4000.0, "gourmet goal", "Вино вишукане") == 0
+        prompt = mock_client.aio.models.generate_content.call_args[1]["contents"][0]
+        assert "ціна" in prompt.lower()
+        assert "не відхиляй" in prompt.lower()
+
+
+@pytest.mark.asyncio
+async def test_judge_prompt_ignores_price(monkeypatch) -> None:
+    import app.services.gemini_service as svc
+
+    monkeypatch.setattr(svc.settings, "GEMINI_MOCK_MODE", False)
+    monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "fake-key")
+
+    mock_response = MagicMock()
+    mock_response.text = '{"verdict": "accept", "reason": "", "suggested_query": null}'
+
+    mock_client = MagicMock()
+    mock_client.aio = MagicMock()
+    mock_client.aio.models = MagicMock()
+    mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+    with patch("app.services.gemini_service.get_genai_client", return_value=mock_client):
+        from app.services.gemini_service import judge_picker_candidate
+
+        await judge_picker_candidate(
+            "Вино вишукане",
+            {"title": "Вино Mirra Alentejo Tinto", "price": 668.0, "quantity": 1},
+            "gourmet goal",
+        )
+        prompt = mock_client.aio.models.generate_content.call_args[1]["contents"][0]
+        assert "ціна" in prompt.lower()
+        assert "не відхиляй" in prompt.lower()
+
+
 def test_extract_json_list_handles_fences_and_prose() -> None:
     from app.services.gemini_service import _extract_json_list
 

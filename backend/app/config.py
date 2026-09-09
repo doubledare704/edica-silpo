@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-3.5-flash-lite"
+    GEMINI_MODEL_FALLBACKS: str = "gemini-3.1-flash-lite,gemini-2.5-flash-lite"
+    GEMINI_MODEL_FALLBACKS_PLAIN: str = "gemma-4-26b-a4b-it,gemma-4-31b-it"
     GEMINI_TTS_MODEL: str = "gemini-3.1-flash-tts-preview"
     TTS_PROVIDER: Literal["respeecher", "gemini"] = "respeecher"
     GEMINI_MOCK_MODE: bool = False

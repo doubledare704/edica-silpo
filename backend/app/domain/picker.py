@@ -44,6 +44,7 @@ _STOP_TOKENS = frozenset(
 _SYNONYM_GROUPS: tuple[frozenset[str], ...] = (
     frozenset({"гриб", "печериц", "шампіньйон", "глив"}),
     frozenset({"курк", "куря", "курча", "chicken"}),
+    frozenset({"помідор", "томат"}),
 )
 
 _RELEVANCE_BLOCKS: tuple[tuple[tuple[str, ...], tuple[str, ...], str], ...] = (
@@ -147,7 +148,10 @@ def _tokens_shared(query_token: str, title_token: str) -> bool:
         return True
     if query_token.startswith("group:") or title_token.startswith("group:"):
         return False
-    return len(query_token) >= 4 and len(title_token) >= 4 and query_token[:4] == title_token[:4]
+    if len(query_token) >= 4 and len(title_token) >= 4 and query_token[:4] == title_token[:4]:
+        return True
+    short, long = sorted((query_token, title_token), key=len)
+    return len(short) >= 3 and long.startswith(short)
 
 
 def is_relevant(query: str, title: str) -> tuple[bool, str]:

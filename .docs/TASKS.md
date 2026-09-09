@@ -9,8 +9,8 @@ START -> stt -> parse_intent -> plan_meals -> plan_domain_logic -> picker
 ```
 
 - State: `SilpoAgentState` TypedDict with the `add_messages` reducer.
-- Gemini: `gemini-3.5-flash-lite`, chosen for availability and lower rate-limit pressure.
-- Gemini calls: native async `google-genai` through `client.aio`.
+- Gemini: `gemini-3.5-flash-lite` primary with ordered failover (`GEMINI_MODEL_FALLBACKS`, default `gemini-3.1-flash-lite,gemini-2.5-flash-lite`); plain-JSON calls additionally use `GEMINI_MODEL_FALLBACKS_PLAIN` (Gemma codes, empty until confirmed via `models.list`).
+- Gemini calls: native async `google-genai` through `client.aio` with per-model failover on 429/503/504/`model_not_found` only.
 - MCP/cart: mock by default; real OAuth-backed calls when `MCP_MOCK_MODE=false`.
 - TTS: optional; selected with `TTS_PROVIDER` (`gemini` or `respeecher`).
 - Recovery: deterministic fallbacks preserve a usable response when integrations fail.
@@ -82,11 +82,20 @@ npm run test:run --prefix frontend
 - [x] Remove the unused header microphone icon and wire the discounts navigation item to a real page.
 - [x] Bonuses and lower-price offers: add `/api/offers` backed by Silpo MCP and a responsive `/discounts` page for bonuses, promotions, discounted products, coupons, and promo codes.
 - [x] Profile page: add `/api/profile` and `/profile` with MCP profile/loyalty data, saved delivery address, delivery settings, and preferred Silpo branches.
+- [x] Gemini model failover chain for long-tail dialogues: `_agenerate` tries Flash fallbacks in order on retryable quota/overload errors (`429`/`503`/`504`/`model_not_found`) and fails fast on 400/401/403; audio/structured/grounded calls stay Flash-only while plain-JSON calls (judge/advisor/formulate/weekly) use the extended plain chain with `gemma-4-26b-a4b-it,gemma-4-31b-it` (codes confirmed in API changelog/reference); no graph/state changes (`backend/tests/test_gemini_rotation.py`).
+- [x] Budget ring shows real fill fraction: `CartCard` takes optional `budget` (from `node_complete.total_price + remaining_budget` via `AgentTimeline`, no backend change), ring `stroke-dasharray` is `total/budget` clamped to 100% and stays full when the budget is unknown.
+- [x] Tomato synonym false reject: `is_relevant` accepts `помідори↔Томат` via a new `_SYNONYM_GROUPS` entry, so assortment hits like `Томат` are no longer dropped as `rejected_irrelevant` (weekly coverage).
+- [x] Gourmet empty-cart acceptance: short-stem plural match in `is_relevant` (`Сири→Сир`, 3+ chars prefix) plus judge/advisor prompt hardening (price is not a rejection criterion — budget is enforced separately), after a gourmet run accepted 0/4 on a bogus "price too low" LLM veto.
+- [x] Honest empty-cart state: `node_complete` carries `unfulfilled_requests`; zero-item runs render `EmptyCart` ("Нічого не знайдено" + missing list + retry) instead of the success banner, cart card, and checkout link.
 - [ ] Run gated live Gemini/MCP smoke tests with real credentials.
   Status: parse/formulate/judge verified live OK (`test_gemini_live.py`, throttled, quota-aware skips);
   `plan_weekly_meals` has offline unit coverage (mock-mode, parse+dish, fish→meat normalization, failure→None)
   plus a gated `test_live_plan_weekly_meals_smoke` (collects OK, not yet run live);
   grounded `research_menu` still unverified live — key's token quota starved (light calls pass, grounded 429s);
   re-run `test_gemini_live.py::test_live_research_menu_smoke` and `::test_live_plan_weekly_meals_smoke`
-  after quota reset. MCP live opt-in only (`SILPO_LIVE_SMOKE=1`, needs completed OAuth login), skipped by default.
+  after quota reset. Failover chain verified live against the same starvation (3.5→3.1 both 429, chain
+  exhausted into deterministic fallback as designed); `gemini-2.5-flash-lite` returned live `404
+  model_not_found` on that key but is NOT retired per docs (deprecation table: no shutdown date announced —
+  likely project/quota-scoped, chain skips dead codes anyway). Gemma-4 plain fallbacks still need one live
+  capability probe (bare-JSON acceptance) after quota reset. MCP live opt-in only (`SILPO_LIVE_SMOKE=1`, needs completed OAuth login), skipped by default.
 - Keep `.docs/LANGRAPH_DISCOVERY.md` as historical reference only; it is not the active architecture contract.

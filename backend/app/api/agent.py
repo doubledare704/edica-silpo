@@ -171,6 +171,7 @@ async def _sse_generator(
         "is_budget_exceeded": accumulated_state.get("is_budget_exceeded", False),
         "remaining_budget": accumulated_state.get("remaining_budget", 0.0),
         "is_requirements_met": accumulated_state.get("is_requirements_met", False),
+        "unfulfilled_requests": accumulated_state.get("unfulfilled_requests", []),
         "cart_url": accumulated_state.get("cart_url"),
         "checkout_url": accumulated_state.get("checkout_url"),
         "loyalty_hint": accumulated_state.get("loyalty_hint"),
