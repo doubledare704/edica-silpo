@@ -123,7 +123,7 @@ async def test_saved_addresses_returns_stored_list() -> None:
         assert len(payload) == 1
         assert payload[0]["address_id"] == "addr-1"
         assert payload[0]["label"] == "Дім"
-        assert payload[0]["text"] == "Київ, вул. Анни Ахматової, 9"
+        assert payload[0]["text"] == "Київ, вул. Анни Ахматової, 9, 19"
 
 
 @pytest.mark.asyncio

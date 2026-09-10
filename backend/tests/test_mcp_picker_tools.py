@@ -162,6 +162,28 @@ async def test_fetch_similar_details_replacements_by_slug(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_fetch_replacements_expands_plural_shape(monkeypatch) -> None:
+    class PluralClient(FakeClient):
+        async def get_replacements(self, branch_id, company_id, delivery_type, product_ids):
+            self.calls.append(("get_replacements", {"product_ids": product_ids}))
+            return [{"productId": pid, "replacements": [_item(45.0, "repl-1")]} for pid in product_ids]
+
+    _patch(monkeypatch, PluralClient([]))
+    repls = await MCPProductService().fetch_replacements({"productId": "p1", "companyId": "c1"}, CTX)
+    assert [p["id"] for p in repls] == ["repl-1"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_replacements_empty_plural_shape(monkeypatch) -> None:
+    class EmptyPluralClient(FakeClient):
+        async def get_replacements(self, branch_id, company_id, delivery_type, product_ids):
+            return [{"productId": pid, "replacements": []} for pid in product_ids]
+
+    _patch(monkeypatch, EmptyPluralClient([]))
+    assert await MCPProductService().fetch_replacements({"productId": "p1", "companyId": "c1"}, CTX) == []
+
+
+@pytest.mark.asyncio
 async def test_resolve_shopping_context_mock_mode(monkeypatch) -> None:
     monkeypatch.setattr(mcp_service.settings, "MCP_MOCK_MODE", True)
     ctx = await MCPProductService().resolve_shopping_context(None)

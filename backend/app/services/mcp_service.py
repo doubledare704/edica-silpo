@@ -314,20 +314,37 @@ class MCPProductService:
 
     @classmethod
     def _normalize_personal_promo(cls, promo: Any) -> dict[str, Any]:
+        title = (
+            cls._product_value(promo, "title")
+            or cls._product_value(promo, "description")
+            or cls._product_value(promo, "reward_text", "rewardText")
+            or "Персональна пропозиція"
+        )
         return {
             "id": str(cls._product_value(promo, "promo_id", "promoId", "id", default="")),
-            "title": str(cls._product_value(promo, "title", default="Персональна пропозиція")),
+            "title": str(title),
             "description": cls._product_value(promo, "description"),
-            "expires_at": cls._product_value(promo, "expires_at", "expiresAt"),
+            "expires_at": cls._product_value(promo, "expires_at", "expiresAt", "end_date", "endDate"),
         }
 
     @classmethod
     def _normalize_coupon(cls, coupon: Any) -> dict[str, Any]:
+        title = (
+            cls._product_value(coupon, "title")
+            or cls._product_value(coupon, "description")
+            or cls._product_value(coupon, "reward_text", "rewardText")
+            or "Купон"
+        )
+        discount = (
+            cls._product_value(coupon, "discount") or cls._product_value(coupon, "reward_value", "rewardValue") or 0.0
+        )
         return {
             "id": str(cls._product_value(coupon, "coupon_id", "couponId", "id", default="")),
-            "title": str(cls._product_value(coupon, "title", default="Купон")),
-            "discount": float(cls._product_value(coupon, "discount", default=0.0) or 0.0),
-            "expires_at": cls._product_value(coupon, "expires_at", "expiresAt"),
+            "title": str(title),
+            "discount": float(discount or 0.0),
+            "expires_at": cls._product_value(
+                coupon, "expires_at", "expiresAt", "end_date_time", "endDateTime", "end_date", "endDate"
+            ),
             "barcode": cls._product_value(coupon, "barcode"),
         }
 
@@ -392,12 +409,43 @@ class MCPProductService:
 
     @classmethod
     def _normalize_profile(cls, profile: Any) -> dict[str, Any]:
+        name = cls._product_value(profile, "name")
+        if not name:
+            parts = [
+                part
+                for part in (
+                    cls._product_value(profile, "first_name", "firstName"),
+                    cls._product_value(profile, "last_name", "lastName"),
+                )
+                if part
+            ]
+            name = " ".join(str(part) for part in parts) or None
         return {
-            "name": cls._product_value(profile, "name"),
+            "name": name,
             "phone": cls._product_value(profile, "phone"),
             "email": cls._product_value(profile, "email"),
-            "birth_date": cls._product_value(profile, "birth_date", "birthDate"),
+            "birth_date": cls._product_value(profile, "birth_date", "birthDate", "birthday"),
         }
+
+    @staticmethod
+    def _address_text(address: Any) -> str | None:
+        get = MCPProductService._product_value
+        text = get(address, "text", "address")
+        if text:
+            return str(text)
+        parts = [
+            part
+            for part in (
+                get(address, "city"),
+                get(address, "street"),
+                get(address, "building", "house_number", "houseNumber", "house"),
+                get(address, "apartment"),
+            )
+            if part
+        ]
+        if parts:
+            return ", ".join(str(part) for part in parts)
+        return None
 
     @classmethod
     def _normalize_profile_address(cls, address: Any) -> dict[str, Any]:
@@ -405,7 +453,7 @@ class MCPProductService:
         return {
             "address_id": str(cls._product_value(address, "address_id", "addressId", "id", default="")),
             "label": cls._product_value(address, "label", "tag"),
-            "text": cls._product_value(address, "text", "address"),
+            "text": cls._address_text(address),
             "coordinates": {"latitude": coordinates[0], "longitude": coordinates[1]}
             if coordinates is not None
             else None,
@@ -451,7 +499,7 @@ class MCPProductService:
                 addresses = [
                     self._normalize_profile_address(entry)
                     for entry in await client.get_delivery_addresses()
-                    if self._product_value(entry, "text", "address")
+                    if self._address_text(entry)
                 ]
                 branches = [self._normalize_branch(entry) for entry in await client.list_branches(limit=20)]
 
@@ -537,6 +585,11 @@ class MCPProductService:
             return []
         products = []
         for i, entry in enumerate(entries):
+            nested = self._product_value(entry, "replacements", default=None)
+            if isinstance(nested, list):
+                for j, candidate in enumerate(nested):
+                    products.append(self._normalize_product(candidate, str(j), 1, f"repl-{i}-{j}"))
+                continue
             candidate = self._product_value(entry, "replacement", default=entry)
             products.append(self._normalize_product(candidate, str(i), 1, f"repl-{i}"))
         return products
@@ -926,13 +979,13 @@ class MCPProductService:
             return []
         addresses: list[dict[str, Any]] = []
         for entry in saved:
-            text = self._product_value(entry, "text", "address", default=None)
+            text = self._address_text(entry)
             if text is None:
                 continue
             addresses.append(
                 {
-                    "address_id": str(self._product_value(entry, "address_id", "addressId", default="")),
-                    "label": self._product_value(entry, "label"),
+                    "address_id": str(self._product_value(entry, "address_id", "addressId", "id", default="")),
+                    "label": self._product_value(entry, "label", "tag"),
                     "text": str(text),
                 }
             )
@@ -945,7 +998,7 @@ class MCPProductService:
             async with client:
                 saved = await client.get_delivery_addresses() or []
                 first_saved = saved[0] if saved else None
-                text = self._product_value(first_saved, "text", "address") if first_saved is not None else None
+                text = self._address_text(first_saved) if first_saved is not None else None
                 if text is None:
                     text = delivery_address
                 if text is None:

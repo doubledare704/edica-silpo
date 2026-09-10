@@ -498,7 +498,7 @@ requires-dist = [
     { name = "langgraph", specifier = ">=1.2.11" },
     { name = "pydantic", specifier = ">=2.13.5" },
     { name = "pydantic-settings", specifier = ">=2.15.0" },
-    { name = "silpo-py-mcp", specifier = ">=0.3.1" },
+    { name = "silpo-py-mcp", specifier = ">=0.4.0" },
     { name = "uvicorn", specifier = ">=0.52.4" },
 ]
 
@@ -1787,7 +1787,7 @@ wheels = [
 
 [[package]]
 name = "silpo-py-mcp"
-version = "0.3.1"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
@@ -1798,9 +1798,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7a/ea/2181d54d9dcba2d8dffec8c4a895d792bb6046570736784fd9a2584f80e9/silpo_py_mcp-0.3.1.tar.gz", hash = "sha256:5abd0ffc143b7ad569c0c3b065498f6f823b0f1a32e7bd670c12c4f31bbc6711", size = 30154, upload-time = "2026-09-07T13:28:59.506Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e2/38/61a7d9ef34d2297e99533051f8f12c74540549dbba17ce4088b22f353f3b/silpo_py_mcp-0.4.0.tar.gz", hash = "sha256:889ccf717c4b5796e28eeffc62925aeb9713446e0fec43e642b258486779c942", size = 34737, upload-time = "2026-09-10T20:45:29.753Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0d/d8/a08f9d1ecf010e7634023359c3c85c13ab4f484f94513cc4b7879a88e168/silpo_py_mcp-0.3.1-py3-none-any.whl", hash = "sha256:eaf4672dc8067e985299a30a819861f90cd8680c551f68d70c061fc2d9b61d04", size = 36181, upload-time = "2026-09-07T13:28:58.254Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/94/de8a2ceec2952272ec51c4fa2a4e6f9c77f29022b31872b662e38777ebb1/silpo_py_mcp-0.4.0-py3-none-any.whl", hash = "sha256:5b5b45eb9a5ef4e7349766e4d7f739f2a8093bc3619638238e96faf8a59124c9", size = 40686, upload-time = "2026-09-10T20:45:28.693Z" },
 ]
 
 [[package]]

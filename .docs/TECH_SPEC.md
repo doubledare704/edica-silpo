@@ -64,8 +64,8 @@ All graph nodes are async. `check_constraints` increments `attempts` exactly onc
 (`get_cart` → `get_cart_by_id` → branch/delivery/slot, with slot revalidation via
 `get_time_slots`), falling back to the address flow only when no active cart exists.
 On retry without over-budget it keeps verified picks and re-attempts only
-`unfulfilled_requests` instead of re-searching everything. Requires `silpo-py-mcp>=0.3.1`
-(context-first API): text search goes through `find_products_batch`, promo fillers through
+`unfulfilled_requests` instead of re-searching everything. Requires `silpo-py-mcp>=0.4.0`
+(context-first API, live-shape reconciliation): text search goes through `find_products_batch`, promo fillers through
 `get_products(must_have_promotion=True, to_price=...)`, substitutes through slug-based
 `get_similar_products` / `get_product_details` and `get_replacements`, slots through typed
 `get_time_slots`, and cart writes through typed `add_or_update_cart_products(products=...)`.
