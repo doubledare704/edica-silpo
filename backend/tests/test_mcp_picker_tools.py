@@ -55,8 +55,22 @@ class FakeClient:
     async def get_promotions(self, **kwargs):
         raise AssertionError("fetch_promo_products must use get_products, not get_promotions")
 
-    async def get_similar_products(self, branch_id, slug, **kwargs):
-        self.calls.append(("get_similar_products", {"slug": slug}))
+    async def get_similar_products(
+        self, branch_id, slug, delivery_type, timeslot_start, timeslot_end, *, limit=None, offset=None
+    ):
+        self.calls.append(
+            (
+                "get_similar_products",
+                {
+                    "slug": slug,
+                    "branch_id": branch_id,
+                    "delivery_type": delivery_type,
+                    "timeslot_start": timeslot_start,
+                    "timeslot_end": timeslot_end,
+                    "limit": limit,
+                },
+            )
+        )
         return [_item(60.0, "sim-1")]
 
     async def get_product_details(self, branch_id, slug, *args, **kwargs):
@@ -155,10 +169,29 @@ async def test_fetch_similar_details_replacements_by_slug(monkeypatch) -> None:
     _patch(monkeypatch, client)
     service = MCPProductService()
     assert [p["id"] for p in await service.fetch_similar("slug-x", CTX)] == ["sim-1"]
+    similar_call = next(c for c in client.calls if c[0] == "get_similar_products")
+    assert similar_call[1]["branch_id"] == CTX["branch_id"]
+    assert similar_call[1]["delivery_type"] == CTX["delivery_type"]
+    assert similar_call[1]["timeslot_start"] == CTX["timeslot_start"]
+    assert similar_call[1]["timeslot_end"] == CTX["timeslot_end"]
+    assert similar_call[1]["limit"] == 5
     details = await service.fetch_product_details("slug-x", CTX)
     assert details is not None and details["description"] == "Fine aged cheese"
     repls = await service.fetch_replacements({"productId": "p1", "company_id": "c1", "companyId": "c1"}, CTX)
     assert [p["id"] for p in repls] == ["repl-1"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_similar_against_real_mock_client(monkeypatch) -> None:
+    """Guards the silpo-py-mcp>=0.5.0 breaking change: get_similar_products requires context."""
+    from silpo_py_mcp import SilpoClient as RealClient
+
+    monkeypatch.setattr(mcp_service.settings, "MCP_MOCK_MODE", True)
+    monkeypatch.setattr(mcp_service.SilpoClient, "for_mock", RealClient.for_mock)
+    service = MCPProductService()
+    products = await service.fetch_similar("moloko-premiya-25-900-ml", dict(MOCK_SHOPPING_CONTEXT))
+    assert len(products) == 2
+    assert all("id" in product and "title" in product and "price" in product for product in products)
 
 
 @pytest.mark.asyncio

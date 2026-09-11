@@ -531,7 +531,17 @@ class MCPProductService:
         client = SilpoClient.for_mock() if settings.MCP_MOCK_MODE else SilpoClient.for_real_server()
         try:
             async with client:
-                entries = await client.get_similar_products(context["branch_id"], slug, limit=5) or []
+                entries = (
+                    await client.get_similar_products(
+                        context["branch_id"],
+                        slug,
+                        context["delivery_type"],
+                        context["timeslot_start"],
+                        context["timeslot_end"],
+                        limit=5,
+                    )
+                    or []
+                )
         except (SilpoError, RuntimeError, OSError, ValueError) as exc:
             logger.debug("Silpo MCP similar error for '%s': %s", slug, exc)
             return []
