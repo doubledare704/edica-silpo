@@ -1122,6 +1122,22 @@ class MCPProductService:
         )
 
     @staticmethod
+    def _stale_item_count(detail: dict[str, Any] | None) -> int:
+        """Counts previous lines including live shipments-nested products (items==[] there)."""
+        if detail is None:
+            return 0
+        count = len(detail.get("items") or [])
+        for shipment in detail.get("shipments") or []:
+            if not isinstance(shipment, dict):
+                continue
+            for key in ("products", "items", "lines"):
+                lines = shipment.get(key)
+                if isinstance(lines, list):
+                    count += len(lines)
+                    break
+        return count
+
+    @staticmethod
     def _build_shipments(items: list[dict[str, Any]], branch_id: str) -> list[dict[str, Any]]:
         grouped: dict[str, list[dict[str, Any]]] = {}
         for item in items:
@@ -1202,8 +1218,16 @@ class MCPProductService:
         async with client:
             cart = await client.get_cart()
             cart_id = self._product_value(cart, "cart_id", "cartId", "shopping_cart_id", "shoppingCartId", "id")
-            detail = await self._fetch_cart_detail(client, str(cart_id)) if cart_id else None
-            if detail is None:
+            if cart_id:
+                cart_id = str(cart_id)
+                detail = await self._fetch_cart_detail(client, cart_id)
+                stale_items = self._stale_item_count(detail)
+                logger.info("mcp cart replacing cart_id=%s stale_items=%d", cart_id, stale_items)
+                try:
+                    await client.clear_cart(cart_id)
+                except (SilpoError, RuntimeError, OSError, ValueError) as exc:
+                    logger.warning("mcp cart clear failed, upserting into dirty cart: %s", exc)
+            else:
                 if fulfillment is None:
                     raise ValueError("Silpo has no active cart and no fulfillment details were provided")
                 created = await client.create_shopping_cart(**fulfillment)
@@ -1211,11 +1235,6 @@ class MCPProductService:
                 if not cart_id:
                     raise ValueError("Silpo cart creation response is missing an id")
                 cart_id = str(cart_id)
-            if detail is not None and detail.get("items"):
-                try:
-                    await client.clear_cart(str(cart_id))
-                except (SilpoError, RuntimeError, OSError, ValueError) as exc:
-                    logger.warning("mcp cart clear failed, upserting into dirty cart: %s", exc)
             if items:
                 await client.add_or_update_cart_products(str(cart_id), products=items)
             if fulfillment is not None and items:

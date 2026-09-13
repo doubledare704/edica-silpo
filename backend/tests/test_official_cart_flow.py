@@ -80,6 +80,10 @@ class OfficialFakeClient:
         self.added = products
         return SimpleNamespace(cart={}, changed=True)
 
+    async def clear_cart(self, cart_id: str):
+        self.calls.append("clear_cart")
+        return SimpleNamespace(cart={}, changed=True)
+
     async def update_shopping_cart(self, *args, **kwargs):
         self.calls.append("update_shopping_cart")
         self.updated = {"args": args, **kwargs}
@@ -138,7 +142,7 @@ async def test_write_verifies_cart_and_surfaces_loyalty_and_checkout(monkeypatch
         {"code": "MIN_ORDER", "message": "Мінімальне замовлення 400 грн", "severity": "warning"}
     ]
     assert "125" in (result["loyalty_hint"] or "")
-    assert "clear_cart" not in client.calls
+    assert client.calls.index("clear_cart") < client.calls.index("add_or_update_cart_products")
     assert client.added is not None and len(client.added) == 2
 
 

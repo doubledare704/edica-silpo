@@ -10,6 +10,7 @@
 	import type { CartItem, MealPlan } from '$lib/cart';
 
 	interface CartPayload {
+		intent: string | null;
 		cartUrl: string | null;
 		summary: string;
 		audioUrl: string | null;
@@ -88,6 +89,7 @@
 		{:else}
 			<SuccessBanner onnew={handleNewRequest} />
 			<CartCard
+				intent={cartPayload.intent}
 				cartUrl={cartPayload.cartUrl}
 				summary={cartPayload.summary}
 				audioUrl={cartPayload.audioUrl}

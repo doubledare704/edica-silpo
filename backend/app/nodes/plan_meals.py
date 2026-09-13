@@ -28,9 +28,13 @@ def _weekly_days(seed: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 async def plan_meals_node(state: SilpoAgentState) -> dict[str, Any]:
-    """Dedicated weekly-menu node: LLM seed with deterministic planner fallback."""
+    """Dedicated weekly-menu node: LLM seed with deterministic planner fallback.
+
+    Weekly planning is budget-only: every other intent clears the meal plan
+    (and any stale seed) so no week plan can leak into party/office/gourmet.
+    """
     if not is_weekly_budget_request(state):
-        return {"meal_plan": None}
+        return {"meal_plan": None, "calculated_items": []}
     user_text = (state.get("user_text") or "").strip()[:300]
     raw_requests = list(state.get("raw_item_requests") or [])
     goal = (

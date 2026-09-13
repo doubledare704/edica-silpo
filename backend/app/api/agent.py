@@ -50,7 +50,10 @@ def _serialize_cart_items(products: object) -> list[dict[str, object]]:
     return items
 
 
-def _serialize_meal_plan(meal_plan: object) -> dict[str, object] | None:
+def _serialize_meal_plan(meal_plan: object, intent: object) -> dict[str, object] | None:
+    """Serializes the 7-day weekly menu, budget-only: other intents never render a week plan."""
+    if intent != IntentEnum.BUDGET:
+        return None
     if not isinstance(meal_plan, dict):
         return None
     days = meal_plan.get("days")
@@ -178,7 +181,7 @@ async def _sse_generator(
         "cart_validations": accumulated_state.get("cart_validations", []),
         "summary": accumulated_state.get("summary_message"),
         "audio_url": accumulated_state.get("audio_url"),
-        "meal_plan": _serialize_meal_plan(accumulated_state.get("meal_plan")),
+        "meal_plan": _serialize_meal_plan(accumulated_state.get("meal_plan"), accumulated_state.get("intent")),
         "items": _serialize_cart_items(accumulated_state.get("mcp_products", [])),
     }
     yield ServerSentEvent(event=SSEEvent.NODE_COMPLETE, data=final_payload)

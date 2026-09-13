@@ -178,6 +178,7 @@ describe('AgentTimeline', () => {
 				event: 'node_complete',
 				data: {
 					...COMPLETE_EVENT.data,
+					intent: 'budget',
 					meal_plan: { days: [{ day: 'День 1', dishes: ['Хек з гречкою'] }] },
 				},
 			},
@@ -188,8 +189,30 @@ describe('AgentTimeline', () => {
 		await waitFor(() => expect(oncomplete).toHaveBeenCalled());
 		expect(oncomplete).toHaveBeenCalledWith(
 			expect.objectContaining({
+				intent: 'budget',
 				mealPlan: { days: [{ day: 'День 1', dishes: ['Хек з гречкою'] }] },
 			}),
+		);
+	});
+
+	it('drops the weekly meal plan for non-budget intents', async () => {
+		const oncomplete = vi.fn();
+		mockFetchWithSse([
+			{
+				event: 'node_complete',
+				data: {
+					...COMPLETE_EVENT.data,
+					intent: 'party',
+					meal_plan: { days: [{ day: 'День 1', dishes: ['Хек з гречкою'] }] },
+				},
+			},
+		]);
+
+		render(AgentTimeline, { request: REQUEST, oncomplete });
+
+		await waitFor(() => expect(oncomplete).toHaveBeenCalled());
+		expect(oncomplete).toHaveBeenCalledWith(
+			expect.objectContaining({ intent: 'party', mealPlan: null }),
 		);
 	});
 

@@ -3,6 +3,7 @@
 	 * CartCard — finished-state basket hero (Stitch: "Поточний кошик").
 	 *
 	 * Props:
+	 *   intent       — agent intent; the weekly menu renders only for 'budget'
 	 *   cartUrl      — Silpo cart share URL (or null if unavailable)
 	 *   summary      — Ukrainian text summary from the agent
 	 *   audioUrl     — path to TTS audio of the agent reply (or null)
@@ -16,6 +17,7 @@
 	import type { CartItem, MealPlan } from '$lib/cart';
 
 	interface Props {
+		intent?: string | null;
 		cartUrl: string | null;
 		summary: string;
 		audioUrl: string | null;
@@ -27,6 +29,7 @@
 	}
 
 	let {
+		intent = null,
 		cartUrl,
 		summary,
 		audioUrl,
@@ -124,7 +127,7 @@
 
 		<p class="text-on-surface text-base leading-relaxed mb-6">{summary}</p>
 
-		{#if mealPlan?.days?.length}
+		{#if intent === 'budget' && mealPlan?.days?.length}
 			<details data-testid="weekly-menu" class="mb-6 rounded-xl border border-app-border p-4">
 				<summary class="cursor-pointer text-sm font-semibold text-on-surface">
 					🍽️ Меню на тиждень ({mealPlan.days.length} днів)

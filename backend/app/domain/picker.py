@@ -6,6 +6,7 @@ import re
 from typing import Any, Protocol
 
 from ..config import settings
+from ..enums import IntentEnum
 from ..services import gemini_service
 from ..services.mcp_service import mcp_product_service
 from ..state import SilpoAgentState
@@ -747,7 +748,9 @@ class PickerService:
         )
 
         seed = list(state.get("calculated_items") or []) or planner.plan(state)
-        meal_plan_seed = bool((state.get("meal_plan") or {}).get("shopping_seed"))
+        meal_plan_seed = state.get("intent") == IntentEnum.BUDGET and bool(
+            (state.get("meal_plan") or {}).get("shopping_seed")
+        )
         if meal_plan_seed:
             formulated = seed
         else:

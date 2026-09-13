@@ -30,6 +30,7 @@
 	}
 
 	interface NodeCompletePayload {
+		intent: string | null;
 		cartUrl: string | null;
 		summary: string;
 		audioUrl: string | null;
@@ -160,7 +161,10 @@
 
 		case 'node_complete':
 			addEvent('node_complete', '🏁 Готово!');
+			// Weekly menu plans are budget-only: never surface a week plan for other intents.
+			const intent = typeof data['intent'] === 'string' ? (data['intent'] as string) : null;
 			oncomplete({
+				intent,
 				cartUrl: (data['cart_url'] as string | null) ?? null,
 				summary: String(data['summary'] ?? ''),
 				audioUrl: resolveAudioUrl((data['audio_url'] as string | null) ?? null),
@@ -169,7 +173,7 @@
 				budget: resolveBudget(data),
 				unfulfilled: normalizeUnfulfilled(data['unfulfilled_requests']),
 				items: normalizeCartItems(data['items']),
-				mealPlan: normalizeMealPlan(data['meal_plan']),
+				mealPlan: intent === 'budget' ? normalizeMealPlan(data['meal_plan']) : null,
 			});
 			break;
 		}

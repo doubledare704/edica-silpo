@@ -32,15 +32,24 @@ def _make_state(**overrides) -> SilpoAgentState:
 
 def test_serialize_meal_plan_keeps_days() -> None:
     payload = _serialize_meal_plan(
-        {"days": [{"day": "День 1", "dishes": ["Хек з гречкою"]}], "budget": 2000.0, "people_count": 2}
+        {"days": [{"day": "День 1", "dishes": ["Хек з гречкою"]}], "budget": 2000.0, "people_count": 2},
+        IntentEnum.BUDGET,
     )
     assert payload is not None
     assert payload["days"] == [{"day": "День 1", "dishes": ["Хек з гречкою"]}]
 
 
 def test_serialize_meal_plan_none_when_absent() -> None:
-    assert _serialize_meal_plan(None) is None
-    assert _serialize_meal_plan({}) is None
+    assert _serialize_meal_plan(None, IntentEnum.BUDGET) is None
+    assert _serialize_meal_plan({}, IntentEnum.BUDGET) is None
+
+
+def test_serialize_meal_plan_none_for_non_budget_intent() -> None:
+    payload = _serialize_meal_plan(
+        {"days": [{"day": "День 1", "dishes": ["Хек з гречкою"]}], "budget": 2000.0, "people_count": 2},
+        IntentEnum.PARTY,
+    )
+    assert payload is None
 
 
 def test_budget_summary_mentions_week_with_meal_plan() -> None:
@@ -52,6 +61,15 @@ def test_budget_summary_mentions_week_with_meal_plan() -> None:
 def test_budget_summary_unchanged_without_meal_plan() -> None:
     planner = BudgetDomainPlanner()
     assert "тиждень" not in planner.format_summary(294.0, _make_state()).lower()
+
+
+def test_budget_summary_weekly_wording_requires_budget_intent() -> None:
+    planner = BudgetDomainPlanner()
+    state = _make_state(
+        intent=IntentEnum.PARTY,
+        meal_plan={"days": [{"day": "День 1", "dishes": ["Хек"]}]},  # type: ignore[typeddict-item]
+    )
+    assert "тиждень" not in planner.format_summary(294.0, state).lower()
 
 
 @pytest.mark.asyncio

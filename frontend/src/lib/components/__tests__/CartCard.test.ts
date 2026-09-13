@@ -120,13 +120,23 @@ describe('CartCard', () => {
 		expect(screen.queryByTestId('cart-items-preview')).not.toBeInTheDocument();
 	});
 
-	it('renders the weekly menu when a meal plan is provided', () => {
+	it('renders the weekly menu for the budget intent when a meal plan is provided', () => {
 		render(CartCard, {
 			...baseProps,
+			intent: 'budget',
 			mealPlan: { days: [{ day: 'День 1', dishes: ['Хек з гречкою'] }] },
 		});
 		expect(screen.getByTestId('weekly-menu')).toBeInTheDocument();
 		expect(screen.getByText('Хек з гречкою')).toBeInTheDocument();
+	});
+
+	it('hides the weekly menu for non-budget intents even with a meal plan', () => {
+		render(CartCard, {
+			...baseProps,
+			intent: 'party',
+			mealPlan: { days: [{ day: 'День 1', dishes: ['Хек з гречкою'] }] },
+		});
+		expect(screen.queryByTestId('weekly-menu')).not.toBeInTheDocument();
 	});
 
 	it('hides the weekly menu when no meal plan was provided', () => {

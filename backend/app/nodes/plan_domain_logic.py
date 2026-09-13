@@ -2,6 +2,7 @@ import logging
 from typing import Any
 
 from ..domain.planners import get_domain_planner
+from ..enums import IntentEnum
 from ..services import gemini_service
 from ..state import SilpoAgentState
 
@@ -13,10 +14,13 @@ async def plan_domain_logic_node(state: SilpoAgentState) -> dict[str, Any]:
 
     Tries grounded menu research first; falls back to the deterministic planner
     when research is unavailable (mock mode, no key, or any failure).
+    The weekly shopping seed is budget-only: other intents never reuse it.
     """
     intent = state.get("intent")
-    meal_plan = state.get("meal_plan") or {}
-    seed = list(meal_plan.get("shopping_seed") or [])
+    seed: list[dict[str, Any]] = []
+    if intent == IntentEnum.BUDGET:
+        meal_plan = state.get("meal_plan") or {}
+        seed = list(meal_plan.get("shopping_seed") or [])
     if seed:
         logger.info("plan_domain_logic done intent=%s items=%d researched=meal_plan", intent, len(seed))
         return {"calculated_items": seed}

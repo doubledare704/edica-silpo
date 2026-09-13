@@ -118,6 +118,31 @@ async def test_plan_domain_logic_prefers_meal_plan_seed(monkeypatch) -> None:
     assert not any(q == "курка" for q in queries)
 
 
+@pytest.mark.asyncio
+async def test_plan_domain_logic_ignores_meal_plan_seed_for_non_budget(monkeypatch) -> None:
+    from app.nodes.plan_domain_logic import plan_domain_logic_node
+    from app.services import gemini_service
+
+    async def _researched(_goal: str):
+        return [{"query": "Курка", "category": "meat", "quantity": 5}]
+
+    monkeypatch.setattr(gemini_service, "research_menu", _researched)
+    state = _make_state(
+        intent=IntentEnum.PARTY,
+        budget=2500.0,
+        user_text="Збери кошик для пікніка",
+        raw_item_requests=["м'ясо", "овочі"],
+    )
+    state["meal_plan"] = {
+        "days": [{"day": "День 1", "dishes": ["Хек з гречкою"]}],
+        "shopping_seed": [{"query": "Хек свіжоморожений", "category": "meat", "quantity": 2}],
+    }  # type: ignore[typeddict-item]
+    result = await plan_domain_logic_node(state)
+    queries = [str(item["query"]).lower() for item in result["calculated_items"]]
+    assert not any("хек" in q for q in queries)
+    assert any(q == "курка" for q in queries)
+
+
 def test_graph_orders_plan_meals() -> None:
     from app.graph import create_silpo_agent_graph
 

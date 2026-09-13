@@ -627,9 +627,9 @@ async def test_picker_skips_formulation_for_meal_plan_seed() -> None:
     ]
     result = await service.run(
         _make_state(
-            IntentEnum.PARTY,
-            budget=5000.0,
-            people_count=5,
+            IntentEnum.BUDGET,
+            budget=2000.0,
+            people_count=2,
             calculated_items=meal_seed,
             meal_plan={"days": [{"day": "День 1", "dishes": ["Курка-гриль"]}], "shopping_seed": meal_seed},
         )
@@ -638,6 +638,32 @@ async def test_picker_skips_formulation_for_meal_plan_seed() -> None:
     titles = [str(p.get("title", "")) for p in result["mcp_products"]]
     assert any("Куряче" in title for title in titles)
     assert not any("Ошийник" in title for title in titles)
+
+
+@pytest.mark.asyncio
+async def test_picker_ignores_stale_meal_plan_seed_for_non_budget() -> None:
+    decoy = [
+        {"query": "Курка для гриля", "category": "meat", "quantity": 2, "prefer_private_label": False},
+        {"query": "Печериці", "category": "vegetables", "quantity": 1, "prefer_private_label": False},
+    ]
+    formulator = MappingFormulator(decoy)
+    service = PickerService(product_service=FakeProductService(_grill_catalog()), query_formulator=formulator)
+    stale_seed = [
+        {"query": "Хек свіжоморожений", "category": "meat", "quantity": 2, "prefer_private_label": False},
+    ]
+    result = await service.run(
+        _make_state(
+            IntentEnum.PARTY,
+            budget=5000.0,
+            people_count=5,
+            calculated_items=stale_seed,
+            meal_plan={"days": [{"day": "День 1", "dishes": ["Хек з гречкою"]}], "shopping_seed": stale_seed},
+        )
+    )
+    assert len(formulator.goals) == 1
+    titles = [str(p.get("title", "")) for p in result["mcp_products"]]
+    assert any("Куряче" in title for title in titles)
+    assert not any("Хек" in title for title in titles)
 
 
 @pytest.mark.asyncio
